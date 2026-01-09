@@ -7,7 +7,7 @@ from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
-# ================= CẤU HÌNH ULTIMATE =================
+# ================= CẤU HÌNH =================
 API_ID = 36437338
 API_HASH = '18d34c7efc396d277f3db62baa078efc'
 
@@ -25,78 +25,66 @@ SESSIONS = [
 ]
 
 TARGET_BOT = 'xocdia88_bot_uytin_bot'
-GROUP_TARGET = -1002984339626
 processed_msgs = set()
 
-def log(msg): print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+# In log ra màn hình ngay lập tức để bạn dễ theo dõi
+def log(msg):
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 async def start_bot(session_str, account_no):
-    while True: # Vòng lặp tự động hồi sinh nếu acc bị crash
+    while True: # Vòng lặp tự động kết nối lại nếu bị văng
         try:
-            client = TelegramClient(StringSession(session_str), API_ID, API_HASH,
-                                    device_model=f"Premium iPhone ({account_no})",
-                                    system_version="17.2", auto_reconnect=True)
+            client = TelegramClient(
+                StringSession(session_str), API_ID, API_HASH,
+                device_model=f"iPhone 15 ({account_no})", # Giả lập thiết bị khác nhau
+                auto_reconnect=True
+            )
             await client.start()
-            
-            # Gửi tín hiệu online
-            try:
-                me = await client.get_me()
-                await client.send_message('me', f"🚀 SIÊU CẤP ACC {account_no} ({me.first_name}) ĐANG TRỰC!")
-                log(f"🔥 [TK {account_no}] ĐÃ SẴN SÀNG CHIẾN ĐẤU!")
-            except: pass
+            log(f"✅ TK {account_no} - ĐÃ TRỰC TUYẾN!")
 
             @client.on(events.NewMessage(chats=TARGET_BOT))
             async def handler(event):
-                if event.message.id in processed_msgs: return
-                
                 if event.reply_markup:
                     for row in event.reply_markup.rows:
                         for button in row.buttons:
-                            # Thuật toán bắt từ khóa đa dạng
-                            if any(k in button.text.lower() for k in ["đập", "hộp", "quà", "mở", "click"]):
-                                processed_msgs.add(event.message.id)
-                                
-                                # TẤN CÔNG TỐC ĐỘ CAO (0.1s - 0.5s)
-                                await asyncio.sleep(random.uniform(0.1, 0.5))
+                            # Đập hộp cực nhanh nhưng an toàn
+                            if any(k in button.text.lower() for k in ["đập", "hộp", "mở"]):
+                                await asyncio.sleep(random.uniform(0.1, 0.3))
                                 try:
                                     await event.click()
-                                    log(f"💰 [TK {account_no}] >>> ĐÃ HÚP ĐƯỢC HỘP! <<<")
-                                    await client.send_message('me', "💰 SẾP ƠI, EM VỪA ĐẬP ĐƯỢC HỘP RỒI!")
-                                except Exception as e:
-                                    log(f"⚠️ [TK {account_no}] Tranh không kịp: {e}")
-                
-                # Báo code về nhóm
-                if any(w in event.raw_text.lower() for w in ["code", "mã"]):
-                    try: await client.send_message(GROUP_TARGET, f"🎁 [TK {account_no}] GIFTCODE:\n{event.raw_text}")
-                    except: pass
+                                    log(f"💰 TK {account_no} - VỪA ĐẬP HỘP!")
+                                except: pass
 
-            # Tính năng PING để giữ acc luôn xanh
+            # Lệnh "Sống sót": Cứ 30 giây kiểm tra trạng thái 1 lần để không bị ngủ
             while True:
                 await asyncio.sleep(30)
-                await client.get_me() # Duy trì kết nối
-                
-        except Exception as e:
-            log(f"🔴 [TK {account_no}] Đang khởi động lại do lỗi: {e}")
-            await asyncio.sleep(10)
+                await client.get_me() 
 
-# Server Flask
+        except Exception as e:
+            log(f"⚠️ TK {account_no} đang kết nối lại... ({e})")
+            await asyncio.sleep(10) # Đợi 10s rồi thử lại để né quét
+
+# Server Flask ảo để Koyeb không tắt bot
 app = Flask('')
 @app.route('/')
-def home(): return "<h1>SYSTEM: ULTIMATE ONLINE</h1>"
+def home(): return "BOT DẬP HỘP ĐANG CHẠY 24/7"
 def run_flask(): app.run(host='0.0.0.0', port=8080)
 
 async def main():
-    log("💎 ĐANG KÍCH HOẠT HỆ THỐNG ĐẬP HỘP SIÊU CẤP...")
+    log("🚀 ĐANG KÍCH HOẠT HỆ THỐNG...")
+    Thread(target=run_flask).start() # Chạy web server
+    
+    tasks = []
     for i, session in enumerate(SESSIONS):
         if len(session) > 50:
-            asyncio.create_task(start_bot(session, i + 1))
-            await asyncio.sleep(8) # Giãn cách 8s là mức vàng để né quét
-    
-    while True:
-        await asyncio.sleep(3600)
-        processed_msgs.clear() # Dọn dẹp bộ nhớ mỗi tiếng
+            tasks.append(asyncio.create_task(start_bot(session, i + 1)))
+            await asyncio.sleep(10) # Giãn cách 10s mỗi acc để né quét IP
+            
+    await asyncio.gather(*tasks)
 
 if __name__ == '__main__':
-    Thread(target=run_flask).start()
-    asyncio.run(main())
-    
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+        
