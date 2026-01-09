@@ -4,7 +4,7 @@ import asyncio
 from flask import Flask
 from threading import Thread
 
-# ================= CẤU HÌNH 4 TÀI KHOẢN ĐÃ TỐI ƯU =================
+# ================= CẤU HÌNH 4 TÀI KHOẢN =================
 API_ID = 36437338
 API_HASH = '18d34c7efc396d277f3db62baa078efc'
 
@@ -17,23 +17,20 @@ SESSIONS = [
 
 TARGET_BOT = 'xocdia88_bot_uytin_bot' 
 GROUP_TARGET = -1002984339626 
-# ==============================================================
+# =========================================================
 
 async def start_bot(session_str, account_no):
+    # Dùng thiết bị khác nhau hoàn toàn để Telegram không nghi ngờ
     client = TelegramClient(
-        StringSession(session_str), 
-        API_ID, API_HASH,
-        connection_retries=None,
-        retry_delay=15,
-        auto_reconnect=True,
-        device_model=f"DapHop_V{account_no}",
-        system_version="Android 14"
+        StringSession(session_str), API_ID, API_HASH,
+        connection_retries=None, retry_delay=20,
+        device_model=f"Android_Acc_{account_no}",
+        system_version="14.0"
     )
     
     try:
         await client.start()
-        me = await client.get_me()
-        print(f"✅ TK {account_no} ({me.first_name}) - ĐÃ ONLINE!")
+        print(f"✅ TK {account_no} ĐÃ ONLINE!")
 
         @client.on(events.NewMessage(chats=TARGET_BOT))
         async def handler(event):
@@ -41,42 +38,38 @@ async def start_bot(session_str, account_no):
                 for row in event.reply_markup.rows:
                     for button in row.buttons:
                         if "Đập Hộp" in button.text:
-                            # Delay nhẹ để né lỗi nghẽn lệnh
-                            await asyncio.sleep(account_no * 0.5)
+                            # Delay giãn cách giữa các máy để không bị khóa IP
+                            await asyncio.sleep(account_no * 0.8)
                             try:
                                 await event.click()
-                                print(f"--- [TK {account_no}] Click thành công! ---")
-                            except Exception: pass
+                                print(f"🚀 [TK {account_no}] ĐÃ ĐẬP HỘP THÀNH CÔNG!")
+                            except: pass
             
             if any(word in event.raw_text for word in ["Code", "Mã", "quà"]):
-                await client.send_message(GROUP_TARGET, f"🎁 [TK {account_no}] QUÀ:\n{event.raw_text}")
+                await client.send_message(GROUP_TARGET, f"🎁 [TK {account_no}] LẤY ĐƯỢC QUÀ:\n\n{event.raw_text}")
 
         await client.run_until_disconnected()
     except Exception as e:
         print(f"⚠️ TK {account_no} tạm dừng: {e}")
 
-# Flask để giữ Koyeb sống
+# Giữ server Koyeb sống
 app = Flask('')
 @app.route('/')
-def home(): return "Bot 4 tài khoản đang trực chiến 24/7!"
+def home(): return "Bot đang đập hộp 24/7!"
 
 def run_flask(): app.run(host='0.0.0.0', port=8080)
 
 async def main():
-    # FIX QUAN TRỌNG: Khởi động các acc cách nhau 10 giây để tránh lỗi Timestamp
-    print("🚀 Đang khởi động đội hình...")
+    print("🔋 Đang nạp đạn cho đội hình...")
+    # FIX LỖI KEY: Khởi động cực chậm từng em một
     for i, session in enumerate(SESSIONS):
         if len(session) > 50:
             asyncio.create_task(start_bot(session, i + 1))
-            await asyncio.sleep(10) # Chờ 10s mới bật acc tiếp theo
+            await asyncio.sleep(20) # Chờ 20 giây mới bật em tiếp theo
     
-    # Giữ cho script luôn chạy
-    while True:
-        await asyncio.sleep(3600)
+    while True: await asyncio.sleep(3600)
 
 if __name__ == '__main__':
     Thread(target=run_flask).start()
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    asyncio.run(main())
     
