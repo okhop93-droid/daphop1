@@ -1,12 +1,13 @@
 import sys
 import asyncio
 import random
+import time
 from threading import Thread
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
-# ================= CẤU HÌNH SIÊU TỐC =================
+# ================= CẤU HÌNH ULTIMATE =================
 API_ID = 36437338
 API_HASH = '18d34c7efc396d277f3db62baa078efc'
 
@@ -27,65 +28,73 @@ TARGET_BOT = 'xocdia88_bot_uytin_bot'
 GROUP_TARGET = -1002984339626
 processed_msgs = set()
 
-def log(msg): print(msg, flush=True)
+def log(msg): print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 async def start_bot(session_str, account_no):
-    try:
-        client = TelegramClient(StringSession(session_str), API_ID, API_HASH,
-                                device_model=f"iPhone 15 Pro Max ({account_no})",
-                                system_version="17.2", auto_reconnect=True)
-        await client.start()
-        
-        # BÁO CÁO NGAY VỀ SAVED MESSAGES
+    while True: # Vòng lặp tự động hồi sinh nếu acc bị crash
         try:
-            me = await client.get_me()
-            await client.send_message('me', f"✅ [TK {account_no}] {me.first_name} ĐÃ ONLINE!")
-            log(f"✅ [TK {account_no}] Đã báo cáo về tin nhắn lưu!")
-        except: pass
-
-        @client.on(events.NewMessage(chats=TARGET_BOT))
-        async def handler(event):
-            log(f"📩 [TK {account_no}] Nhận tin mới từ Bot...")
-            if event.message.id in processed_msgs: return
+            client = TelegramClient(StringSession(session_str), API_ID, API_HASH,
+                                    device_model=f"Premium iPhone ({account_no})",
+                                    system_version="17.2", auto_reconnect=True)
+            await client.start()
             
-            if event.reply_markup:
-                for row in event.reply_markup.rows:
-                    for button in row.buttons:
-                        txt = button.text.lower()
-                        # Bắt từ khóa "đập", "hộp", "quà", "mở"
-                        if any(k in txt for k in ["đập", "hộp", "quà", "mở"]):
-                            processed_msgs.add(event.message.id)
-                            # Delay siêu ngắn 1-3s để test
-                            await asyncio.sleep(random.uniform(1, 3))
-                            try:
-                                await event.click()
-                                await client.send_message('me', f"🚀 [TK {account_no}] VỪA ĐẬP HỘP XONG!")
-                                log(f"🚀 [TK {account_no}] CLICK THÀNH CÔNG!")
-                            except: pass
-            
-            if any(w in event.raw_text.lower() for w in ["code", "mã"]):
-                try: await client.send_message(GROUP_TARGET, event.raw_text)
-                except: pass
+            # Gửi tín hiệu online
+            try:
+                me = await client.get_me()
+                await client.send_message('me', f"🚀 SIÊU CẤP ACC {account_no} ({me.first_name}) ĐANG TRỰC!")
+                log(f"🔥 [TK {account_no}] ĐÃ SẴN SÀNG CHIẾN ĐẤU!")
+            except: pass
 
-        await client.run_until_disconnected()
-    except Exception as e: log(f"❌ [TK {account_no}] Lỗi: {e}")
+            @client.on(events.NewMessage(chats=TARGET_BOT))
+            async def handler(event):
+                if event.message.id in processed_msgs: return
+                
+                if event.reply_markup:
+                    for row in event.reply_markup.rows:
+                        for button in row.buttons:
+                            # Thuật toán bắt từ khóa đa dạng
+                            if any(k in button.text.lower() for k in ["đập", "hộp", "quà", "mở", "click"]):
+                                processed_msgs.add(event.message.id)
+                                
+                                # TẤN CÔNG TỐC ĐỘ CAO (0.1s - 0.5s)
+                                await asyncio.sleep(random.uniform(0.1, 0.5))
+                                try:
+                                    await event.click()
+                                    log(f"💰 [TK {account_no}] >>> ĐÃ HÚP ĐƯỢC HỘP! <<<")
+                                    await client.send_message('me', "💰 SẾP ƠI, EM VỪA ĐẬP ĐƯỢC HỘP RỒI!")
+                                except Exception as e:
+                                    log(f"⚠️ [TK {account_no}] Tranh không kịp: {e}")
+                
+                # Báo code về nhóm
+                if any(w in event.raw_text.lower() for w in ["code", "mã"]):
+                    try: await client.send_message(GROUP_TARGET, f"🎁 [TK {account_no}] GIFTCODE:\n{event.raw_text}")
+                    except: pass
 
-# Giữ server sống
+            # Tính năng PING để giữ acc luôn xanh
+            while True:
+                await asyncio.sleep(30)
+                await client.get_me() # Duy trì kết nối
+                
+        except Exception as e:
+            log(f"🔴 [TK {account_no}] Đang khởi động lại do lỗi: {e}")
+            await asyncio.sleep(10)
+
+# Server Flask
 app = Flask('')
 @app.route('/')
-def home(): return "BOT CHAY OK"
+def home(): return "<h1>SYSTEM: ULTIMATE ONLINE</h1>"
 def run_flask(): app.run(host='0.0.0.0', port=8080)
 
 async def main():
-    log("🚀 BẮT ĐẦU CHẠY SIÊU TỐC (MỖI ACC CÁCH NHAU 5S)...")
-    tasks = []
+    log("💎 ĐANG KÍCH HOẠT HỆ THỐNG ĐẬP HỘP SIÊU CẤP...")
     for i, session in enumerate(SESSIONS):
         if len(session) > 50:
-            log(f"🔌 Đang bật TK {i+1}...")
-            tasks.append(asyncio.create_task(start_bot(session, i + 1)))
-            # CHỜ 5 GIÂY THÔI CHO NHANH
-            await asyncio.sleep(5)
-    await asyncio.gather(*tasks)
+            asyncio.create_task(start_bot(session, i + 1))
+            await asyncio.sleep(8) # Giãn cách 8s là mức vàng để né quét
+    
+    while True:
+        await asyncio.sleep(3600)
+        processed_msgs.clear() # Dọn dẹp bộ nhớ mỗi tiếng
 
 if __name__ == '__main__':
     Thread(target=run_flask).start()
