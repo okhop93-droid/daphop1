@@ -1,15 +1,16 @@
+import sys
+import asyncio
+import random
+from threading import Thread
+from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-import asyncio
-from flask import Flask
-from threading import Thread
-import random
 
-# ================= CẤU HÌNH HỆ THỐNG =================
+# ================= CẤU HÌNH VIP =================
 API_ID = 36437338
 API_HASH = '18d34c7efc396d277f3db62baa078efc'
 
-# Danh sách 10 tài khoản đã được cập nhật
+# Danh sách 10 mã Session của bạn
 SESSIONS = [
     '1BVtsOJEBu4kG50S18lXaCW2WgazYHri_nQ7No7pEvAxAtZSPK1Og1pT-dsF5wRFQZk7L-y8Kc3cxXinB2ycVFTA4hofF2KWtr_ZETKrgg4HIHtT8XC1DoCA3-Jf-81DZOgiWcm073yMmZaf-IAr6lqau_jemhFJxDlGeReerknWjbuGWkWcmmkL58n77y8w5gpzPW4eQa8zGNSj_aSzWxh9yvqW5AWTXz-vOd5chvBajTff3h2zLYrp0I62naR3QDFXU85_kRXMyN8ilHeb81wUvkD53TG1FeZw7m3pfJ3nolY5qHuXEfkbnbkXfrBA36A_e7qiUOREKyxHZ4Hy1LqQlS55qPbk=', # Tk 1
     '1BVtsOJEBu7d4nbO-iggb0fMc3YmCHEn84ExMGjwFvuLTEVZz2rAUWI8ZAUm-1xb3v_z9sWw77k_EJfnnSF6x17KZx_TIBBiiCOckGlusoEPhYb1Ta-Dw4xJf-t_vA6pCyLSS1B7Zc-n4I5z3aKNv4t903xy2X1Xal4w4SIjDyigwSA_SxHVcVXF360fGB8tUND0qYNJ-DupLJHucJN9v8ewlv2j81e658glX7DVOSYtge90MhqOoe6mk236xkPndMTd5PECg9h_j9_d5yJp6HD3R7LTFBG-t-kQcg8K8Yzwer2ez_CI7fig9MegWle1aaFIOVjykX7Oo1V-UcjrnU3hzP3AnWMQ=', # Tk 2
@@ -23,86 +24,115 @@ SESSIONS = [
     '1BVtsOIIBu2Xxc_PHjyxRQiV5mEWutcdKbRS21ZTOAothKUjabgyr_YLHvx4IY-DeMl8fUoEzbSogmaXv_ODk9VTP643y1_ONMfifvhKoUGHiwOoUgd5uZSKSYYbAvYyyQ340tBmtJwMtgmybsUIeOBZHL-x19vLoyQgVegY0rggtp9R9CYgGwWGgPhvbWLm0UTEl-uZomon3Su7SIljKEN6TzRbKTVBMNxX9cvVl-cYQABqGhlptJSo36trvZviuQmCKQOT1g4FK2bWQXIB9-Yd2NejwhzSpHRU3oJ8kR2UbGUEV-_tUoC4Hv_DKtxLdJm3UGJ8bv1Z3KE0HzRjKBzgdxGXRt20='  # Tk 10
 ]
 
-TARGET_BOT = 'xocdia88_bot_uytin_bot' 
-GROUP_TARGET = -1002984339626 
+TARGET_BOT = 'xocdia88_bot_uytin_bot'
+GROUP_TARGET = -1002984339626
 processed_msgs = set()
 
-# =====================================================
+# Hàm in log bắt buộc hiện ngay lập tức
+def log(msg):
+    print(msg, flush=True)
 
 async def start_bot(session_str, account_no):
-    # CHỐNG QUÉT: Random thiết bị cho mỗi tài khoản
-    models = ["Galaxy_S24", "iPhone_15", "Pixel_8", "Xiaomi_14", "RedMagic_9"]
-    versions = ["11.0", "12.0", "13.0", "14.0"]
+    # Random thiết bị "xịn"
+    models = ["iPhone 15 Pro Max", "Samsung S24 Ultra", "Google Pixel 8", "iPad Pro M2"]
     
     client = TelegramClient(
         StringSession(session_str), API_ID, API_HASH,
         device_model=random.choice(models),
-        system_version=random.choice(versions),
-        connection_retries=10,
-        retry_delay=10
+        system_version="17.2",
+        auto_reconnect=True,
+        connection_retries=None
     )
     
     try:
         await client.start()
-        print(f"✅ [{account_no}] - ĐÃ ONLINE!")
+        # Gửi tin nhắn về "Saved Messages" để chủ acc biết
+        try:
+            me = await client.get_me()
+            await client.send_message('me', f"🤖 [TK {account_no}] {me.first_name} đã Online trên Koyeb!")
+        except: pass
+        
+        log(f"✅ [TK {account_no}] KẾT NỐI THÀNH CÔNG! ĐANG RÌNH MỒI...")
 
         @client.on(events.NewMessage(chats=TARGET_BOT))
         async def handler(event):
             global processed_msgs
             
-            # Log để theo dõi tin nhắn đến
-            print(f"📩 [TK {account_no}] Nhận tin mới từ {TARGET_BOT}")
+            # Log ngay khi thấy Bot mục tiêu động đậy
+            log(f"👀 [TK {account_no}] Thấy {TARGET_BOT} nhắn gì đó...")
 
             if event.message.id in processed_msgs: return
             
             if event.reply_markup:
                 for row in event.reply_markup.rows:
                     for button in row.buttons:
-                        # Bắt từ khóa nhạy hơn (chống icon chèn vào)
-                        if "Đập" in button.text or "Hộp" in button.text:
+                        # Bắt từ khóa siêu nhạy
+                        txt = button.text.lower()
+                        if "đập" in txt or "hộp" in txt or "quà" in txt or "mở" in txt:
                             processed_msgs.add(event.message.id)
                             
-                            # Delay thông minh: mỗi acc bấm lệch nhau 0.3-0.7s
-                            wait_time = account_no * random.uniform(0.3, 0.7)
-                            print(f"⚡ [TK {account_no}] Thấy Hộp! Đập sau {wait_time:.2f}s...")
+                            # Delay siêu thực (Acc 1 nhanh nhất, Acc 10 chậm hơn)
+                            delay = account_no * random.uniform(0.2, 0.5)
+                            log(f"⚡ [TK {account_no}] PHÁT HIỆN QUÀ! Bấm sau {delay:.2f}s")
                             
-                            await asyncio.sleep(wait_time)
+                            await asyncio.sleep(delay)
                             try:
                                 await event.click()
-                                print(f"🚀 [TK {account_no}] CLICK THÀNH CÔNG!")
+                                log(f"🚀 [TK {account_no}] >>> ĐÃ CLICK ĐẬP HỘP! <<<")
+                                # Báo cáo ngay về Saved Messages nếu ăn được
+                                await client.send_message('me', f"✅ [TK {account_no}] Vừa đập hộp xong!")
                             except Exception as e:
-                                print(f"❌ [TK {account_no}] Click lỗi: {e}")
+                                log(f"❌ [TK {account_no}] Click xịt: {e}")
             
-            # Tự động gửi Code về nhóm
-            if any(word in event.raw_text.lower() for word in ["code", "mã", "quà"]):
+            # Bắt Code quà
+            if any(w in event.raw_text.lower() for w in ["code", "mã", "gift"]):
                 try:
-                    await client.send_message(GROUP_TARGET, f"🎁 [TK {account_no}] LẤY CODE:\n{event.raw_text}")
+                    await client.send_message(GROUP_TARGET, f"🎁 [TK {account_no}] CÓ CODE: {event.raw_text}")
                 except: pass
 
         await client.run_until_disconnected()
     except Exception as e:
-        print(f"⚠️ TK {account_no} dừng do: {e}")
+        log(f"⚠️ [TK {account_no}] LỖI: {e}")
 
-# Server Flask để Koyeb không tắt bot
+# --- Server ảo giữ Koyeb sống ---
 app = Flask('')
 @app.route('/')
-def home(): return "Bot 10 Acc đang trực chiến!"
+def home(): return "<h1>BOT ĐANG CHẠY 24/7 - DO NOT SLEEP</h1>"
 
-def run_flask(): app.run(host='0.0.0.0', port=8080)
+def run_flask():
+    # Tắt log rác của Flask để đỡ rối mắt
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+    app.run(host='0.0.0.0', port=8080)
 
 async def main():
-    print("🔋 Đang kích hoạt đội hình 10 tài khoản...")
-    for i, session in enumerate(SESSIONS):
-        if len(session) > 100:
-            asyncio.create_task(start_bot(session, i + 1))
-            # QUAN TRỌNG: Chờ 45s mỗi acc để né quét IP Telegram
-            await asyncio.sleep(45)
+    log("➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖")
+    log("🚀 HỆ THỐNG ĐANG KHỞI ĐỘNG CHẾ ĐỘ VIP...")
+    log(f"📋 Đã nạp {len(SESSIONS)} tài khoản.")
+    log("➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖➖")
     
-    while True:
-        await asyncio.sleep(3600)
-        processed_msgs.clear() 
+    tasks = []
+    for i, session in enumerate(SESSIONS):
+        if len(session) > 50:
+            # Acc đầu tiên chạy ngay lập tức, không chờ
+            if i == 0:
+                log(f"🔌 Đang kết nối TK {i+1} (Máy chủ)...")
+                tasks.append(asyncio.create_task(start_bot(session, i + 1)))
+            else:
+                # Các acc sau chờ 30s để an toàn
+                wait = 30
+                log(f"⏳ TK {i+1} đang xếp hàng (Đợi {wait}s)...")
+                await asyncio.sleep(wait)
+                log(f"🔌 Đang kết nối TK {i+1}...")
+                tasks.append(asyncio.create_task(start_bot(session, i + 1)))
+                
+    await asyncio.gather(*tasks)
 
 if __name__ == '__main__':
     Thread(target=run_flask).start()
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
     
