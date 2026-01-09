@@ -1,6 +1,6 @@
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-import asyncio, random, time
+import asyncio, random, datetime
 from flask import Flask
 from threading import Thread
 
@@ -8,7 +8,7 @@ from threading import Thread
 API_ID = 36437338
 API_HASH = '18d34c7efc396d277f3db62baa078efc'
 BOT = 'xocdia88_bot_uytin_bot'
-GR = -1002984339626
+GR_LOG = -1002984339626
 
 SESSIONS = [
     '1BVtsOJEBu4kG50S18lXaCW2WgazYHri_nQ7No7pEvAxAtZSPK1Og1pT-dsF5wRFQZk7L-y8Kc3cxXinB2ycVFTA4hofF2KWtr_ZETKrgg4HIHtT8XC1DoCA3-Jf-81DZOgiWcm073yMmZaf-IAr6lqau_jemhFJxDlGeReerknWjbuGWkWcmmkL58n77y8w5gpzPW4eQa8zGNSj_aSzWxh9yvqW5AWTXz-vOd5chvBajTff3h2zLYrp0I62naR3QDFXU85_kRXMyN8ilHeb81wUvkD53TG1FeZw7m3pfJ3nolY5qHuXEfkbnbkXfrBA36A_e7qiUOREKyxHZ4Hy1LqQlS55qPbk=',
@@ -23,43 +23,63 @@ SESSIONS = [
     '1BVtsOIIBu2Xxc_PHjyxRQiV5mEWutcdKbRS21ZTOAothKUjabgyr_YLHvx4IY-DeMl8fUoEzbSogmaXv_ODk9VTP643y1_ONMfifvhKoUGHiwOoUgd5uZSKSYYbAvYyyQ340tBmtJwMtgmybsUIeOBZHL-x19vLoyQgVegY0rggtp9R9CYgGwWGgPhvbWLm0UTEl-uZomon3Su7SIljKEN6TzRbKTVBMNxX9cvVl-cYQABqGhlptJSo36trvZviuQmCKQOT1g4FK2bWQXIB9-Yd2NejwhzSpHRU3oJ8kR2UbGUEV-_tUoC4Hv_DKtxLdJm3UGJ8bv1Z3KE0HzRjKBzgdxGXRt20='
 ]
 
-# --- WEB SERVER (XỊN) ---
+# --- WEB SERVER ---
 app = Flask('')
 @app.route('/')
-def home(): return "<h1>🔥 SYSTEM ONLINE 24/7</h1>"
+def home(): return "<h1>STATUS: ACTIVE</h1>"
 
-async def start_acc(s, idx):
+async def check_acc(session_str, idx):
     try:
-        c = TelegramClient(StringSession(s), API_ID, API_HASH, device_model=f"iPhone {idx}")
-        await c.start()
-        print(f"🟢 [ACC {idx}] ONLINE!", flush=True)
+        # Ghi log bắt đầu thử acc
+        print(f"🕒 [ACC {idx}] Đang thử kết nối...", flush=True)
+        
+        client = TelegramClient(StringSession(session_str), API_ID, API_HASH, device_model=f"iPhone {idx}")
+        await client.start()
+        
+        me = await client.get_me()
+        user_info = f"@{me.username}" if me.username else me.first_name
+        
+        # In ra log xanh mướt khi thành công
+        print(f"✅ [ACC {idx}] ONLINE: {user_info} - Đang canh bot...", flush=True)
 
-        @c.on(events.NewMessage(chats=BOT))
-        async def h(e):
+        @client.on(events.NewMessage(chats=BOT))
+        async def work(e):
             if e.reply_markup:
-                for r in e.reply_markup.rows:
-                    for b in r.buttons:
-                        if any(x in b.text for x in ["Đập", "Hộp", "Mở"]):
-                            await asyncio.sleep(random.uniform(0.1, 0.3))
-                            await e.click()
-                            print(f"💰 [ACC {idx}] ĐẬP HỘP!", flush=True)
-            if any(x in e.raw_text for x in ["Giftcode", "Mã"]):
-                await c.send_message(GR, f"🎁 ACC {idx} LẤY CODE:\n{e.raw_text}")
+                for row in e.reply_markup.rows:
+                    for btn in row.buttons:
+                        if any(x in btn.text for x in ["Đập", "Hộp", "Mở"]):
+                            await asyncio.sleep(random.uniform(0.1, 0.4))
+                            try:
+                                await e.click()
+                                print(f"💰 [ACC {idx}] {user_info} đã đập hộp thành công!", flush=True)
+                            except: pass
 
+        # Ép duy trì kết nối
         while True:
-            await asyncio.sleep(40)
-            await c.get_me()
-    except Exception as err:
-        print(f"🔴 [ACC {idx}] LỖI: {err}", flush=True)
+            await asyncio.sleep(60)
+            await client.get_me()
+            
+    except Exception as e:
+        # BÁO CÁO LỖI CHI TIẾT
+        err_msg = str(e)
+        if "auth key" in err_msg.lower():
+            print(f"❌ [ACC {idx}] LỖI: Session đã hết hạn/bị xóa.", flush=True)
+        elif "flood" in err_msg.lower():
+            print(f"⚠️ [ACC {idx}] LỖI: Bị Telegram giới hạn (Flood). Chờ...", flush=True)
+        else:
+            print(f"🔴 [ACC {idx}] LỖI KHÁC: {err_msg}", flush=True)
 
 async def main():
     Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
-    print("🚀 ĐANG KÍCH HOẠT 10 SÁT THỦ...", flush=True)
+    print("🚀 --- HỆ THỐNG KIỂM TRA CHI TIẾT 10 ACC ---", flush=True)
+    
+    tasks = []
     for i, s in enumerate(SESSIONS):
-        asyncio.create_task(start_acc(s, i+1))
-        await asyncio.sleep(10) # Giãn cách chuẩn né quét IP
-    print("✅ TẤT CẢ ĐÃ TRỰC CHIẾN!", flush=True)
-    while True: await asyncio.sleep(1)
+        tasks.append(asyncio.create_task(check_acc(s, i+1)))
+        await asyncio.sleep(15) # Giãn cách xa hơn để log hiện rõ từng acc
+    
+    print("📢 Đang lắng nghe phản hồi từ 10 acc...", flush=True)
+    await asyncio.gather(*tasks)
 
 if __name__ == '__main__':
     asyncio.run(main())
