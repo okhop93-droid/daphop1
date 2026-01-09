@@ -1,13 +1,18 @@
 import asyncio
 import random
+import time
+from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
-# --- CẤU HÌNH GỐC ---
+# ================= CẤU HÌNH =================
 API_ID = 36437338
 API_HASH = '18d34c7efc396d277f3db62baa078efc'
+TARGET_BOT = 'xocdia88_bot_uytin_bot'
+GROUP_TARGET = -1002984339626
+
 SESSIONS = [
     '1BVtsOJEBu4kG50S18lXaCW2WgazYHri_nQ7No7pEvAxAtZSPK1Og1pT-dsF5wRFQZk7L-y8Kc3cxXinB2ycVFTA4hofF2KWtr_ZETKrgg4HIHtT8XC1DoCA3-Jf-81DZOgiWcm073yMmZaf-IAr6lqau_jemhFJxDlGeReerknWjbuGWkWcmmkL58n77y8w5gpzPW4eQa8zGNSj_aSzWxh9yvqW5AWTXz-vOd5chvBajTff3h2zLYrp0I62naR3QDFXU85_kRXMyN8ilHeb81wUvkD53TG1FeZw7m3pfJ3nolY5qHuXEfkbnbkXfrBA36A_e7qiUOREKyxHZ4Hy1LqQlS55qPbk=',
     '1BVtsOJEBu7d4nbO-iggb0fMc3YmCHEn84ExMGjwFvuLTEVZz2rAUWI8ZAUm-1xb3v_z9sWw77k_EJfnnSF6x17KZx_TIBBiiCOckGlusoEPhYb1Ta-Dw4xJf-t_vA6pCyLSS1B7Zc-n4I5z3aKNv4t903xy2X1Xal4w4SIjDyigwSA_SxHVcVXF360fGB8tUND0qYNJ-DupLJHucJN9v8ewlv2j81e658glX7DVOSYtge90MhqOoe6mk236xkPndMTd5PECg9h_j9_d5yJp6HD3R7LTFBG-t-kQcg8K8Yzwer2ez_CI7fig9MegWle1aaFIOVjykX7Oo1V-UcjrnU3hzP3AnWMQ=',
@@ -20,46 +25,74 @@ SESSIONS = [
     '1BVtsOGcBu5CqSdan-uhZSxpn7GoJL-bKB9pbMCt828Y-BPEQLToGvUiBpJhQL70R9DEHirs5abNcAb52Mn_kMxYK9V4I6ou4ebWCjPhHtClNUIW3cmImkf8vyzucNieQafwNUJ7MvVJWRsh3gvI-nn0Y2_ebEUopSVVyOCxWMccE2yYyHPZ6mR6q4ESKa2blN9pt9biWsBg45VDbBU0BBSBNvHGuc24-2C4T8K4WP8ZcU-GYiUW2RCsnMO_YvjIfuJNtYW384UUxba3q5qF6YWlmBtmxlRp5S3f0DKiZgxy9FOHCUZYCqKgOii76Yp0xcO35-5DOKoUjd2fJb-gfklagQjFWVhw=',
     '1BVtsOIIBu2Xxc_PHjyxRQiV5mEWutcdKbRS21ZTOAothKUjabgyr_YLHvx4IY-DeMl8fUoEzbSogmaXv_ODk9VTP643y1_ONMfifvhKoUGHiwOoUgd5uZSKSYYbAvYyyQ340tBmtJwMtgmybsUIeOBZHL-x19vLoyQgVegY0rggtp9R9CYgGwWGgPhvbWLm0UTEl-uZomon3Su7SIljKEN6TzRbKTVBMNxX9cvVl-cYQABqGhlptJSo36trvZviuQmCKQOT1g4FK2bWQXIB9-Yd2NejwhzSpHRU3oJ8kR2UbGUEV-_tUoC4Hv_DKtxLdJm3UGJ8bv1Z3KE0HzRjKBzgdxGXRt20='
 ]
-TARGET_BOT = 'xocdia88_bot_uytin_bot'
 
-# --- GIỮ BOT LUÔN SỐNG ---
+# --- BIẾN TOÀN CỤC ---
+stats = {"total_clicks": 0, "active_accs": 0}
+start_time = datetime.now()
+
+def fancy_log(msg, type="INFO"):
+    colors = {"INFO": "🔵", "SUCCESS": "🟢", "ERROR": "🔴", "CLICK": "💰"}
+    now = datetime.now().strftime("%H:%M:%S")
+    print(f"{colors.get(type, '⚪')} [{now}] {msg}", flush=True)
+
+# --- WEB SERVER ---
 app = Flask('')
 @app.route('/')
-def home(): return "BOT DẬP HỘP ĐANG CHẠY"
-def run(): app.run(host='0.0.0.0', port=8080)
+def home():
+    uptime = str(datetime.now() - start_time).split('.')[0]
+    return f"""
+    <body style="background:#1a1a1a; color:#00ff00; font-family:monospace; padding:50px;">
+        <h1>💎 ULTIMATE BOT DASHBOARD ACTIVE</h1>
+        <hr border="1">
+        <p>🚀 STATUS: RUNNING 24/7</p>
+        <p>🕒 UPTIME: {uptime}</p>
+        <p>👥 ACTIVE ACCOUNTS: {stats['active_accs']}/10</p>
+        <p>🎁 TOTAL BOXES: {stats['total_clicks']}</p>
+    </body>
+    """
 
-async def start_acc(session, id):
-    try:
-        # Dùng device iPhone để né quét
-        client = TelegramClient(StringSession(session), API_ID, API_HASH, device_model=f"iPhone {id}")
-        await client.start()
-        print(f"✅ TK {id} ĐÃ VÀO TRẬN", flush=True)
+async def run_bot(session, acc_id):
+    while True:
+        try:
+            client = TelegramClient(StringSession(session), API_ID, API_HASH, auto_reconnect=True)
+            await client.start()
+            stats["active_accs"] += 1
+            fancy_log(f"TK {acc_id} - KẾT NỐI THÀNH CÔNG", "SUCCESS")
+            
+            @client.on(events.NewMessage(chats=TARGET_BOT))
+            async def event_handler(event):
+                if event.reply_markup:
+                    for row in event.reply_markup.rows:
+                        for btn in row.buttons:
+                            if any(k in btn.text.lower() for k in ["đập", "hộp", "mở"]):
+                                await asyncio.sleep(random.uniform(0.1, 0.3))
+                                try:
+                                    await event.click()
+                                    stats["total_clicks"] += 1
+                                    fancy_log(f"TK {acc_id} ĐÃ ĐẬP HỘP! (Tổng: {stats['total_clicks']})", "CLICK")
+                                except: pass
 
-        @client.on(events.NewMessage(chats=TARGET_BOT))
-        async def work(event):
-            if event.reply_markup:
-                for row in event.reply_markup.rows:
-                    for btn in row.buttons:
-                        if any(x in btn.text.lower() for x in ["đập", "hộp", "mở"]):
-                            await asyncio.sleep(random.uniform(0.1, 0.4))
-                            await event.click()
-                            print(f"💰 TK {id} HÚP ĐƯỢC QUÀ!", flush=True)
+            # Giữ CPU nhảy liên tục (Heartbeat)
+            while True:
+                await asyncio.sleep(30)
+                await client.get_me()
 
-        # CỨ 45S "THỞ" MỘT LẦN ĐỂ CPU LUÔN CHẠY
-        while True:
-            await asyncio.sleep(45)
-            await client.get_me() 
-    except: pass
+        except Exception as e:
+            fancy_log(f"TK {acc_id} LỖI: {e}", "ERROR")
+            if stats["active_accs"] > 0: stats["active_accs"] -= 1
+            await asyncio.sleep(20)
 
 async def main():
-    Thread(target=run).start()
-    for i, s in enumerate(SESSIONS):
-        asyncio.create_task(start_acc(s, i+1))
-        await asyncio.sleep(12) # GIÃN CÁCH 12S ĐỂ KHÔNG BỊ QUÉT
+    fancy_log("KHỞI TẠO HỆ THỐNG SIÊU CẤP...", "INFO")
+    Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
     
-    print("🚀 HỆ THỐNG ĐÃ LÊN ĐÈN!", flush=True)
-    while True: await asyncio.sleep(1)
+    tasks = []
+    for i, s in enumerate(SESSIONS):
+        tasks.append(asyncio.create_task(run_bot(s, i+1)))
+        await asyncio.sleep(12) # Khoảng cách an toàn
+        
+    fancy_log("TẤT CẢ 10 SÁT THỦ ĐÃ VÀO VỊ TRÍ!", "SUCCESS")
+    await asyncio.gather(*tasks)
 
 if __name__ == '__main__':
     asyncio.run(main())
-    
