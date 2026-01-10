@@ -1,5 +1,4 @@
 telethon
 flask
 cryptg
-multidict
-itertools-ext
+aiohttp
