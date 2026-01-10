@@ -7,7 +7,7 @@ from threading import Thread
 # --- CẤU HÌNH HỆ THỐNG ---
 API_ID = 36437338
 API_HASH = '18d34c7efc396d277f3db62baa078efc'
-BOT_TOKEN = '8028025981:AAHkk0rLr35pDP6ooYg09hSV9ys1SJu9pfY'
+BOT_TOKEN = '8028025981:AAGJNsyU1NoN1YFTeSHmPA0aXEFDeOnCN4M'
 BOT_GAME = 'xocdia88_bot_uytin_bot'
 GR_LOG = -1002984339626
 SESSION_FILE = "database_sessions.txt"
