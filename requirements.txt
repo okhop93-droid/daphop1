@@ -1,4 +1,3 @@
 telethon
 flask
-cryptg
-aiohttp
+python-dotenv
