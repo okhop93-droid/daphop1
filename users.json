@@ -1,0 +1,14 @@
+{
+  "123456789": {
+    "expire": "2026-01-18T15:00:00",
+    "session": "1BVk34n...StringSession...",
+    "acc_name": "Nguyen Van A",
+    "last_code": "ABC123"
+  },
+  "987654321": {
+    "expire": "2026-02-10T12:00:00",
+    "session": "1ABc9...StringSession...",
+    "acc_name": "Le Thi B",
+    "last_code": "XYZ987"
+  }
+}
