@@ -2,6 +2,7 @@ import asyncio, json, random, re, os
 from datetime import datetime, timedelta
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
+from binascii import Error as BinAsciiError
 
 # ===== CONFIG =====
 API_ID = 36437338
@@ -38,12 +39,15 @@ def load_users():
         with open(USERS_FILE) as f:
             data = json.load(f)
             for uid, v in data.items():
-                USERS[int(uid)] = {
-                    "expire": datetime.fromisoformat(v["expire"]),
-                    "session": v["session"],
-                    "acc": v["acc"],
-                    "last_code": v.get("last_code","")
-                }
+                try:
+                    USERS[int(uid)] = {
+                        "expire": datetime.fromisoformat(v["expire"]),
+                        "session": v["session"],
+                        "acc": v["acc"],
+                        "last_code": v.get("last_code","")
+                    }
+                except Exception as e:
+                    print(f"❌ Lỗi load user {uid}: {e}")
 
 def save_codes():
     with open(CODES_FILE,"w") as f:
@@ -108,24 +112,28 @@ async def cb(e):
             await e.answer(txt, alert=True)
 
     # ===== ADMIN =====
-    elif data == "admin_users" and uid in ADMINS:
-        txt = "📦 USER\n"
-        for u in USERS.values():
-            txt += f"- {u['acc']} | {u['expire']}\n"
-        await e.edit(txt, buttons=[[Button.inline("⬅️ Back", b"back")]])
+    elif uid in ADMINS:
+        if data == "admin_users":
+            txt = "📦 USER\n"
+            for u in USERS.values():
+                txt += f"- {u['acc']} | {u['expire']}\n"
+            if e.message.text != txt:
+                await e.edit(txt, buttons=[[Button.inline("⬅️ Back", b"back")]])
 
-    elif data == "admin_codes" and uid in ADMINS:
-        txt = "📄 KHO CODE\n"
-        for c in CODES[-20:]:
-            txt += f"- `{c['code']}` | {c['acc']} | {c['time']}\n"
-        await e.edit(txt, buttons=[[Button.inline("⬅️ Back", b"back")]])
+        elif data == "admin_codes":
+            txt = "📄 KHO CODE\n"
+            for c in CODES[-20:]:
+                txt += f"- `{c['code']}` | {c['acc']} | {c['time']}\n"
+            if e.message.text != txt:
+                await e.edit(txt, buttons=[[Button.inline("⬅️ Back", b"back")]])
 
-    elif data == "admin_stat" and uid in ADMINS:
-        await e.edit(f"📊 THỐNG KÊ\n👤 User: {len(USERS)}\n🎁 Code: {len(CODES)}",
-                     buttons=[[Button.inline("⬅️ Back", b"back")]])
+        elif data == "admin_stat":
+            txt = f"📊 THỐNG KÊ\n👤 User: {len(USERS)}\n🎁 Code: {len(CODES)}"
+            if e.message.text != txt:
+                await e.edit(txt, buttons=[[Button.inline("⬅️ Back", b"back")]])
 
-    elif data == "restart" and uid in ADMINS:
-        os._exit(0)
+        elif data == "restart":
+            os._exit(0)
 
     elif data == "back":
         if uid in ADMINS:
@@ -137,9 +145,92 @@ async def cb(e):
 @bot.on(events.NewMessage(pattern="/add "))
 async def add_acc(e):
     uid = e.sender_id
-    sess = e.text.split(" ",1)[1]
+    sess = e.text.split(" ",1)[1].strip()
 
     try:
+        client = TelegramClient(StringSession(sess), API_ID, API_HASH)
+        await client.connect()
+        me = await client.get_me()
+        await client.disconnect()
+
+        USERS[uid] = {
+            "session": sess,
+            "acc": me.first_name,
+            "expire": datetime.utcnow(),
+            "last_code": ""
+        }
+        save_users()
+        asyncio.create_task(grab_loop(uid))
+        await e.respond(f"✅ Nạp acc `{me.first_name}` thành công")
+    except (BinAsciiError, ValueError):
+        await e.respond("❌ SESSION sai hoặc không hợp lệ")
+    except Exception as ex:
+        await e.respond(f"❌ Lỗi khác: {ex}")
+
+# ===== NẠP TIỀN =====
+@bot.on(events.NewMessage(pattern="/nap "))
+async def nap(e):
+    uid = e.sender_id
+    pack = e.text.split(" ",1)[1].strip()
+    if pack not in PACKS:
+        await e.respond("Sai gói")
+        return
+    if uid not in USERS:
+        await e.respond("❌ Bạn chưa nạp acc")
+        return
+    USERS[uid]["expire"] += PACKS[pack]
+    save_users()
+    await e.respond(f"✅ Đã cộng {PACKS[pack].days} ngày")
+
+# ===== GRAB CODE =====
+async def grab_loop(uid):
+    u = USERS[uid]
+    try:
+        client = TelegramClient(StringSession(u["session"]), API_ID, API_HASH)
+        await client.connect()
+    except:
+        print(f"❌ User {uid} session lỗi, bỏ qua")
+        return
+
+    @client.on(events.NewMessage(chats=BOT_GAME))
+    async def handler(ev):
+        if not has_active(uid): return
+        if not ev.reply_markup: return
+
+        btn = next((b for r in ev.reply_markup.rows for b in r.buttons
+                    if "đập" in b.text.lower()), None)
+        if not btn: return
+
+        await asyncio.sleep(random.uniform(0.5,1))
+        await ev.click()
+        await asyncio.sleep(1)
+
+        msg = await client.get_messages(BOT_GAME, limit=1)
+        if msg and msg[0].message:
+            m = re.search(r"code.*?:\s*([A-Z0-9]+)", msg[0].message, re.I)
+            if m:
+                code = m.group(1)
+                if code != u.get("last_code",""):
+                    u["last_code"] = code
+                    CODES.append({
+                        "uid": uid,
+                        "acc": u["acc"],
+                        "code": code,
+                        "time": datetime.utcnow().strftime("%d/%m %H:%M")
+                    })
+                    save_codes()
+                    await bot.send_message(uid, f"🎁 CODE: `{code}`")
+
+# ===== MAIN =====
+async def main():
+    load_users()
+    await bot.start(bot_token=BOT_TOKEN)
+    for uid in USERS:
+        asyncio.create_task(grab_loop(uid))
+    print("BOT CHẠY OK")
+    await bot.run_until_disconnected()
+
+asyncio.run(main())    try:
         client = TelegramClient(StringSession(sess), API_ID, API_HASH)
         await client.connect()
         me = await client.get_me()
