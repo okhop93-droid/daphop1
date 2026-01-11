@@ -1,0 +1,16 @@
+{
+  "codes": [
+    {
+      "code": "ABC123",
+      "user_id": 123456789,
+      "acc_name": "Nguyen Van A",
+      "time": "2026-01-11 15:20:30"
+    },
+    {
+      "code": "XYZ987",
+      "user_id": 987654321,
+      "acc_name": "Le Thi B",
+      "time": "2026-01-11 15:45:10"
+    }
+  ]
+}
