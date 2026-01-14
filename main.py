@@ -9,7 +9,7 @@ from telethon.errors import FloodWaitError
 # ===== CẤU HÌNH =====
 API_ID = 36437338
 API_HASH = "18d34c7efc396d277f3db62baa078efc"
-BOT_TOKEN = "8290293625:AAFSVHI_UZV39fymFauEi7OYChF9KRC4F0M"
+BOT_TOKEN = "13602653:8EoNH1vZ2lVDxlC1UIgXP1X0ImqSBkBo8Ei7nCxz"
 BOT_GAME = "xocdia88_bot_uytin_bot"
 SESSION_FILE = "sessions.txt"
 CODES_FILE = "codes.json"
