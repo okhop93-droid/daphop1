@@ -4,10 +4,10 @@ from flask import Flask
 from threading import Thread
 
 # ====== CẤU HÌNH ======
-API_ID = int(os.getenv("36437338"))
-API_HASH = os.getenv("18d34c7efc396d277f3db62baa078efc")
-BOT_TOKEN = os.getenv("8521238450:AAFQCNZVtTifUm8PXLcXRVz2mFgeYdcZZws")
-ADMIN_ID = int(os.getenv("7816353760"))  # telegram id admin
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))  # telegram id admin
 
 CHECK_DELAY = 5  # giây
 
