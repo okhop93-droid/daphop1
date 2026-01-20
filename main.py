@@ -10,7 +10,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 SEPAY_KEY = os.getenv("SEPAY_API_KEY")
 
-SEPAY_API = "https://api.sepay.vn/api/v1/transactions"
+SEPAY_API = "https://api.sepay.io/api/v1/transactions"
 CHECK_DELAY = 5
 # =======================
 
