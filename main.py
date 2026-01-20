@@ -1,3 +1,4 @@
+import os
 import asyncio, re, sqlite3, random, requests
 from telethon import TelegramClient, events
 from flask import Flask
