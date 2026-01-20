@@ -1,20 +1,15 @@
-import os, asyncio, sqlite3, requests
+import os, asyncio, sqlite3
 from telethon import TelegramClient, events, Button
-from flask import Flask
+from flask import Flask, request, jsonify
 from threading import Thread
 
-# ========= ENV =========
+# ===== ENV =====
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-SEPAY_KEY = os.getenv("SEPAY_API_KEY")
 
-SEPAY_API = "https://api.sepay.io/api/v1/transactions"
-CHECK_DELAY = 5
-# =======================
-
-# ========= DB ==========
+# ===== DB =====
 db = sqlite3.connect("data.db", check_same_thread=False)
 cur = db.cursor()
 
@@ -42,11 +37,11 @@ CREATE TABLE IF NOT EXISTS txs(
 )
 """)
 db.commit()
-# =======================
 
+# ===== BOT =====
 bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-# ========= USER =========
+# ===== USER =====
 @bot.on(events.NewMessage(pattern="/start"))
 async def start(e):
     uid = e.sender_id
@@ -57,15 +52,11 @@ async def start(e):
     banks = cur.fetchall()
 
     if not banks:
-        await e.reply("❌ Chưa có bank")
+        await e.reply("❌ Chưa có ngân hàng nạp tiền")
         return
 
     buttons = [[Button.inline(f"🏦 {b[1]}", data=f"bank_{b[0]}")] for b in banks]
-
-    await e.reply(
-        "💰 NẠP TIỀN\n👉 Chọn ngân hàng:",
-        buttons=buttons
-    )
+    await e.reply("💰 NẠP TIỀN\nChọn ngân hàng:", buttons=buttons)
 
 @bot.on(events.CallbackQuery(pattern=b"bank_"))
 async def choose_bank(e):
@@ -79,10 +70,9 @@ async def choose_bank(e):
         f"🏦 {name}\n"
         f"👤 {owner}\n"
         f"💳 {acc}\n\n"
-        "👉 Nội dung chuyển khoản:\n"
+        "📌 Ghi chú chuyển khoản:\n"
         f"{uid}"
     )
-
     await e.edit(msg)
     if qr:
         await bot.send_file(uid, qr)
@@ -93,7 +83,7 @@ async def balance(e):
     bal = cur.fetchone()[0]
     await e.reply(f"💰 Số dư: {bal:,}đ")
 
-# ========= ADMIN =========
+# ===== ADMIN =====
 @bot.on(events.NewMessage(pattern="/addbank"))
 async def addbank(e):
     if e.sender_id != ADMIN_ID:
@@ -105,11 +95,11 @@ async def addbank(e):
             (name, owner, acc, qr)
         )
         db.commit()
-        await e.reply("✅ Đã thêm bank")
+        await e.reply("✅ Đã thêm ngân hàng")
     except:
-        await e.reply("❌ /addbank TEN CHUTK STK QR_URL")
+        await e.reply("❌ /addbank TEN_NH CHU_TK STK QR_URL")
 
-# ========= CORE =========
+# ===== CORE =====
 def paid(txid):
     cur.execute("SELECT 1 FROM txs WHERE txid=?", (txid,))
     return cur.fetchone()
@@ -122,49 +112,44 @@ def add_money(uid, amt):
     cur.execute("UPDATE users SET balance=balance+? WHERE tg_id=?", (amt, uid))
     db.commit()
 
-async def check_sepay():
-    headers = {"Authorization": f"Bearer {SEPAY_KEY}"}
-    while True:
-        try:
-            res = requests.get(SEPAY_API, headers=headers, timeout=10).json()
-            for tx in res["data"]["transactions"]:
-                if tx["transactionType"] != "IN":
-                    continue
-
-                remark = str(tx["description"]).strip()
-                if not remark.isdigit():
-                    continue
-
-                uid = int(remark)
-                amount = int(tx["amount"])
-                txid = f"sepay_{tx['id']}"
-
-                if paid(txid):
-                    continue
-
-                cur.execute("SELECT 1 FROM users WHERE tg_id=?", (uid,))
-                if not cur.fetchone():
-                    continue
-
-                add_money(uid, amount)
-                save_tx(txid)
-
-                await bot.send_message(
-                    uid,
-                    f"✅ Nạp thành công\n💰 +{amount:,}đ"
-                )
-        except Exception as e:
-            print("SEPAY ERR:", e)
-
-        await asyncio.sleep(CHECK_DELAY)
-
-# ========= KEEP ALIVE =========
+# ===== WEBHOOK =====
 app = Flask(__name__)
+
 @app.route("/")
 def home():
     return "OK"
 
-Thread(target=lambda: app.run(host="0.0.0.0", port=10000)).start()
+@app.route("/sepay", methods=["POST"])
+def sepay_hook():
+    data = request.json
 
-bot.loop.create_task(check_sepay())
+    if data.get("transactionType") != "IN":
+        return jsonify(ok=True)
+
+    note = str(data.get("description", "")).strip()
+    if not note.isdigit():
+        return jsonify(ok=True)
+
+    uid = int(note)
+    txid = "sepay_" + str(data["id"])
+    amount = int(data["amount"])
+
+    if paid(txid):
+        return jsonify(ok=True)
+
+    cur.execute("SELECT 1 FROM users WHERE tg_id=?", (uid,))
+    if not cur.fetchone():
+        return jsonify(ok=True)
+
+    add_money(uid, amount)
+    save_tx(txid)
+
+    asyncio.run_coroutine_threadsafe(
+        bot.send_message(uid, f"✅ Nạp thành công\n💰 +{amount:,}đ"),
+        bot.loop
+    )
+
+    return jsonify(ok=True)
+
+Thread(target=lambda: app.run(host="0.0.0.0", port=10000)).start()
 bot.run_until_disconnected()
