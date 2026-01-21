@@ -1,155 +1,120 @@
-import logging
-import sqlite3
+import os
+import psycopg2
 import requests
-import json
 from flask import Flask, request
-from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-# --- CẤU HÌNH (THAY THÔNG TIN CỦA BẠN VÀO ĐÂY) ---
-TOKEN = "8361903272:AAGTo7mAZgDUn7tgza_rNKVvstMd55Irg-Y"
-ADMIN_ID = 7816353760  # ID Telegram của bạn (Lấy tại @userinfobot)
-API_TSR_KEY = "KEY_CỦA_BẠN" # Nếu cần dùng gửi thẻ
+# --- CẤU HÌNH BẮT BUỘC ---
+TOKEN = "8361903272:AAGTo7mAZgDUn7tgza_rNKVvstMd55Irg"
+ADMIN_ID = 7816353760  # Thay ID của bạn vào đây
+DATABASE_URL = os.environ.get('DATABASE_URL') # Lấy từ Render Postgres
 
 app = Flask(__name__)
+application = Application.builder().token(TOKEN).build()
 
-# --- KHỞI TẠO DATABASE ---
+# --- DATABASE LOGIC ---
+def get_db_conn():
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
+
 def init_db():
-    conn = sqlite3.connect('database.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS codes (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, code_val TEXT, status INTEGER DEFAULT 0)''')
-    conn.commit()
-    conn.close()
+    conn = get_db_conn(); cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS users (id BIGINT PRIMARY KEY, balance INT DEFAULT 0)")
+    cur.execute("CREATE TABLE IF NOT EXISTS codes (id SERIAL PRIMARY KEY, type TEXT, code_val TEXT, status INT DEFAULT 0)")
+    conn.commit(); cur.close(); conn.close()
 
-def db_query(query, params=(), fetchone=False, fetchall=False, commit=False):
-    conn = sqlite3.connect('database.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute(query, params)
-    res = None
-    if fetchone: res = c.fetchone()
-    if fetchall: res = c.fetchall()
-    if commit: conn.commit()
-    conn.close()
-    return res
+# --- WEBHOOKS (SEPAY & TELEGRAM) ---
+@app.route(f'/{TOKEN}', methods=['POST'])
+async def telegram_webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update(update)
+    return "OK", 200
 
-# --- WEBHOOK HỨNG TIỀN (SEPAY & TSR) ---
 @app.route('/webhook/sepay', methods=['POST'])
-def sepay_webhook():
+def sepay_income():
     data = request.json
-    content = data.get('content', '') # Nội dung chuyển khoản: NAP 123456
+    content = data.get('content', '').upper()
     amount = int(data.get('transferAmount', 0))
-    if "NAP" in content.upper():
-        try:
-            u_id = content.upper().replace("NAP", "").strip()
-            db_query("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, u_id), commit=True)
-            requests.get(f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={u_id}&text=✅ Bank: +{amount}đ. Chúc bạn chơi vui vẻ!")
-        except: pass
+    if "NAP" in content:
+        u_id = content.replace("NAP", "").strip()
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("UPDATE users SET balance = balance + %s WHERE id = %s", (amount, int(u_id)))
+        conn.commit(); cur.close(); conn.close()
+        requests.get(f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={u_id}&text=✅ Nạp thành công {amount}đ!")
     return "OK", 200
 
-@app.route('/webhook/tsr', methods=['GET'])
-def tsr_webhook():
-    status = request.args.get('status')
-    val = request.args.get('value')
-    rid = request.args.get('request_id') # Bạn cần lưu request_id vào DB để khớp user_id
-    if status == '1':
-        # Logic cộng tiền dựa trên request_id
-        pass
-    return "OK", 200
-
-# --- CÁC HÀM XỬ LÝ BOT ---
+# --- CHỨC NĂNG USER ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    db_query("INSERT OR IGNORE INTO users (id, balance) VALUES (?, 0)", (user_id,), commit=True)
+    conn = get_db_conn(); cur = conn.cursor()
+    cur.execute("INSERT INTO users (id, balance) VALUES (%s, 0) ON CONFLICT DO NOTHING", (user_id,))
+    conn.commit(); cur.close(); conn.close()
     
-    # Menu cho User
-    keyboard = [
-        [InlineKeyboardButton("🎁 Mua Code Tân Thủ (0đ)", callback_query_data='buy_TANTU')],
-        [InlineKeyboardButton("💎 Mua Code VIP (20k)", callback_query_data='buy_VIP20')],
-        [InlineKeyboardButton("💳 Nạp Tiền", callback_query_data='menu_nap')],
-        [InlineKeyboardButton("👤 Tài Khoản", callback_query_data='profile')]
+    kb = [
+        [InlineKeyboardButton("🎁 Code Tân Thủ (0đ)", callback_query_data='buy_TANTU')],
+        [InlineKeyboardButton("💎 Code VIP (20k)", callback_query_data='buy_VIP')],
+        [InlineKeyboardButton("💳 Nạp Tiền", callback_query_data='nap')],
+        [InlineKeyboardButton("👤 Tài Khoản", callback_query_data='info')]
     ]
-    # Nếu là Admin thì hiện thêm nút Admin
     if user_id == ADMIN_ID:
-        keyboard.append([InlineKeyboardButton("🛠 MENU ADMIN", callback_query_data='admin_panel')])
-        
-    await update.message.reply_text("🔥 WELCOME TO XOCDIA88 BOT 🔥\nHệ thống bán code tự động 24/7", reply_markup=InlineKeyboardMarkup(keyboard))
+        kb.append([InlineKeyboardButton("🛠 MENU ADMIN", callback_query_data='admin')])
+    await update.message.reply_text("🔥 BOT XOCDIA88 TỰ ĐỘNG 🔥", reply_markup=InlineKeyboardMarkup(kb))
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    data = query.data
-    await query.answer()
+    q = update.callback_query
+    user_id = q.from_user.id
+    await q.answer()
 
-    if data == 'profile':
-        user = db_query("SELECT balance FROM users WHERE id = ?", (user_id,), fetchone=True)
-        await query.message.reply_text(f"👤 ID: `{user_id}`\n💰 Số dư: {user[0] if user else 0}đ", parse_mode='Markdown')
+    if q.data == 'info':
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("SELECT balance FROM users WHERE id = %s", (user_id,))
+        b = cur.fetchone()[0]
+        cur.close(); conn.close()
+        await q.message.reply_text(f"👤 ID: `{user_id}`\n💰 Số dư: {b}đ", parse_mode='Markdown')
 
-    elif data == 'menu_nap':
-        await query.message.reply_text(f"💳 **NẠP TỰ ĐỘNG**\n\n**Cách 1: Bank MSB**\nSTK: `80002422042`\nNội dung: `NAP {user_id}`\n\n**Cách 2: Nạp Thẻ**\nTruy cập: thesieure.com", parse_mode='Markdown')
-
-    elif data.startswith('buy_'):
-        c_type = data.replace('buy_', '')
-        price = 0 if c_type == 'TANTU' else 20000
-        user = db_query("SELECT balance FROM users WHERE id = ?", (user_id,), fetchone=True)
+    elif q.data.startswith('buy_'):
+        ctype = q.data.replace('buy_', '')
+        price = 0 if ctype == 'TANTU' else 20000
+        conn = get_db_conn(); cur = conn.cursor()
+        cur.execute("SELECT balance FROM users WHERE id = %s", (user_id,))
+        balance = cur.fetchone()[0]
         
-        if user and user[0] >= price:
-            code = db_query("SELECT id, code_val FROM codes WHERE type = ? AND status = 0 LIMIT 1", (c_type,), fetchone=True)
-            if code:
-                db_query("UPDATE users SET balance = balance - ? WHERE id = ?", (price, user_id), commit=True)
-                db_query("UPDATE codes SET status = 1 WHERE id = ?", (code[0],), commit=True)
-                await query.message.reply_text(f"✅ MUA THÀNH CÔNG!\n🎁 Code: `{code[1]}`", parse_mode='Markdown')
-            else:
-                await query.message.reply_text("❌ Hết hàng trong kho!")
-        else:
-            await query.message.reply_text("❌ Không đủ số dư!")
+        if balance >= price:
+            cur.execute("SELECT id, code_val FROM codes WHERE type = %s AND status = 0 LIMIT 1", (ctype,))
+            res = cur.fetchone()
+            if res:
+                cur.execute("UPDATE users SET balance = balance - %s WHERE id = %s", (price, user_id))
+                cur.execute("UPDATE codes SET status = 1 WHERE id = %s", (res[0],))
+                conn.commit()
+                await q.message.reply_text(f"✅ Code của bạn: `{res[1]}`", parse_mode='Markdown')
+            else: await q.message.reply_text("❌ Kho đã hết code này!")
+        else: await q.message.reply_text("❌ Không đủ tiền!")
+        cur.close(); conn.close()
 
-    # --- LOGIC ADMIN ---
-    elif data == 'admin_panel' and user_id == ADMIN_ID:
-        kb = [
-            [InlineKeyboardButton("➕ Thêm Code", callback_query_data='adm_add')],
-            [InlineKeyboardButton("📊 Thống kê kho", callback_query_data='adm_stats')],
-            [InlineKeyboardButton("📢 Thông báo tổng", callback_query_data='adm_bc')]
-        ]
-        await query.message.reply_text("🛠 BẢNG ĐIỀU KHIỂN ADMIN", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == 'adm_stats' and user_id == ADMIN_ID:
-        count = db_query("SELECT type, COUNT(*) FROM codes WHERE status = 0 GROUP BY type", fetchall=True)
-        txt = "📊 KHO HÀNG HIỆN TẠI:\n"
-        for r in count: txt += f"- {r[0]}: {r[1]} mã\n"
-        await query.message.reply_text(txt)
-
-    elif data == 'adm_add' and user_id == ADMIN_ID:
-        await query.message.reply_text("Gửi code theo định dạng: `LOAI CODE1, CODE2` (Ví dụ: `TANTU ABC, XYZ`)")
-
-# Admin nạp code bằng cách nhắn tin
-async def admin_msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- LỆNH ADMIN (THÊM CODE) ---
+async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    text = update.message.text
-    if " " in text:
-        parts = text.split(" ")
-        c_type = parts[0].upper()
-        codes = "".join(parts[1:]).split(",")
-        for c in codes:
-            db_query("INSERT INTO codes (type, code_val, status) VALUES (?, ?, 0)", (c_type, c.strip(),), commit=True)
-        await update.message.reply_text(f"✅ Đã thêm {len(codes)} mã vào kho {c_type}!")
+    try:
+        # Cú pháp: TANTU mã1, mã2, mã3
+        msg = update.message.text
+        parts = msg.split(" ", 1)
+        type_code = parts[0].upper()
+        list_codes = parts[1].split(",")
+        conn = get_db_conn(); cur = conn.cursor()
+        for c in list_codes:
+            cur.execute("INSERT INTO codes (type, code_val) VALUES (%s, %s)", (type_code, c.strip()))
+        conn.commit(); cur.close(); conn.close()
+        await update.message.reply_text(f"✅ Đã thêm {len(list_codes)} mã vào kho {type_code}")
+    except:
+        await update.message.reply_text("Sử dụng: `LOẠI CODE1, CODE2`")
 
-# --- KHỞI CHẠY ---
-def run_flask():
-    app.run(host='0.0.0.0', port=10000)
-
+# --- CHẠY SERVER ---
 if __name__ == '__main__':
     init_db()
-    # Chạy Flask Webhook song song với Bot
-    Thread(target=run_flask).start()
-    
-    # Chạy Telegram Bot
-    application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(handle_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handler))
     
-    print("Bot đang chạy...")
-    application.run_polling()
-  
+    # Không dùng run_polling() nữa để tránh lỗi Conflict
+    app.run(host='0.0.0.0', port=10000)
+    
