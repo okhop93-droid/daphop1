@@ -1,155 +1,155 @@
-import os, asyncio, sqlite3
-from telethon import TelegramClient, events, Button
-from flask import Flask, request, jsonify
+import logging
+import sqlite3
+import requests
+import json
+from flask import Flask, request
 from threading import Thread
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-# ===== ENV =====
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+# --- CẤU HÌNH (THAY THÔNG TIN CỦA BẠN VÀO ĐÂY) ---
+TOKEN = "8361903272:AAGTo7mAZgDUn7tgza_rNKVvstMd55Irg-Y"
+ADMIN_ID = 7816353760  # ID Telegram của bạn (Lấy tại @userinfobot)
+API_TSR_KEY = "KEY_CỦA_BẠN" # Nếu cần dùng gửi thẻ
 
-# ===== DB =====
-db = sqlite3.connect("data.db", check_same_thread=False)
-cur = db.cursor()
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS users(
-  tg_id INTEGER PRIMARY KEY,
-  balance INTEGER DEFAULT 0
-)
-""")
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS banks(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT,
-  owner TEXT,
-  acc TEXT,
-  qr TEXT,
-  active INTEGER
-)
-""")
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS txs(
-  txid TEXT PRIMARY KEY
-)
-""")
-db.commit()
-
-# ===== BOT =====
-bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
-
-# ===== USER =====
-@bot.on(events.NewMessage(pattern="/start"))
-async def start(e):
-    uid = e.sender_id
-    cur.execute("INSERT OR IGNORE INTO users VALUES (?,0)", (uid,))
-    db.commit()
-
-    cur.execute("SELECT id,name FROM banks WHERE active=1")
-    banks = cur.fetchall()
-
-    if not banks:
-        await e.reply("❌ Chưa có ngân hàng nạp tiền")
-        return
-
-    buttons = [[Button.inline(f"🏦 {b[1]}", data=f"bank_{b[0]}")] for b in banks]
-    await e.reply("💰 NẠP TIỀN\nChọn ngân hàng:", buttons=buttons)
-
-@bot.on(events.CallbackQuery(pattern=b"bank_"))
-async def choose_bank(e):
-    bank_id = int(e.data.decode().split("_")[1])
-    uid = e.sender_id
-
-    cur.execute("SELECT name,owner,acc,qr FROM banks WHERE id=?", (bank_id,))
-    name, owner, acc, qr = cur.fetchone()
-
-    msg = (
-        f"🏦 {name}\n"
-        f"👤 {owner}\n"
-        f"💳 {acc}\n\n"
-        "📌 Ghi chú chuyển khoản:\n"
-        f"{uid}"
-    )
-    await e.edit(msg)
-    if qr:
-        await bot.send_file(uid, qr)
-
-@bot.on(events.NewMessage(pattern="/balance"))
-async def balance(e):
-    cur.execute("SELECT balance FROM users WHERE tg_id=?", (e.sender_id,))
-    bal = cur.fetchone()[0]
-    await e.reply(f"💰 Số dư: {bal:,}đ")
-
-# ===== ADMIN =====
-@bot.on(events.NewMessage(pattern="/addbank"))
-async def addbank(e):
-    if e.sender_id != ADMIN_ID:
-        return
-    try:
-        _, name, owner, acc, qr = e.raw_text.split(maxsplit=4)
-        cur.execute(
-            "INSERT INTO banks (name,owner,acc,qr,active) VALUES (?,?,?,?,1)",
-            (name, owner, acc, qr)
-        )
-        db.commit()
-        await e.reply("✅ Đã thêm ngân hàng")
-    except:
-        await e.reply("❌ /addbank TEN_NH CHU_TK STK QR_URL")
-
-# ===== CORE =====
-def paid(txid):
-    cur.execute("SELECT 1 FROM txs WHERE txid=?", (txid,))
-    return cur.fetchone()
-
-def save_tx(txid):
-    cur.execute("INSERT INTO txs VALUES (?)", (txid,))
-    db.commit()
-
-def add_money(uid, amt):
-    cur.execute("UPDATE users SET balance=balance+? WHERE tg_id=?", (amt, uid))
-    db.commit()
-
-# ===== WEBHOOK =====
 app = Flask(__name__)
 
-@app.route("/")
-def home():
-    return "OK"
+# --- KHỞI TẠO DATABASE ---
+def init_db():
+    conn = sqlite3.connect('database.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS codes (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, code_val TEXT, status INTEGER DEFAULT 0)''')
+    conn.commit()
+    conn.close()
 
-@app.route("/sepay", methods=["POST"])
-def sepay_hook():
+def db_query(query, params=(), fetchone=False, fetchall=False, commit=False):
+    conn = sqlite3.connect('database.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute(query, params)
+    res = None
+    if fetchone: res = c.fetchone()
+    if fetchall: res = c.fetchall()
+    if commit: conn.commit()
+    conn.close()
+    return res
+
+# --- WEBHOOK HỨNG TIỀN (SEPAY & TSR) ---
+@app.route('/webhook/sepay', methods=['POST'])
+def sepay_webhook():
     data = request.json
+    content = data.get('content', '') # Nội dung chuyển khoản: NAP 123456
+    amount = int(data.get('transferAmount', 0))
+    if "NAP" in content.upper():
+        try:
+            u_id = content.upper().replace("NAP", "").strip()
+            db_query("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, u_id), commit=True)
+            requests.get(f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={u_id}&text=✅ Bank: +{amount}đ. Chúc bạn chơi vui vẻ!")
+        except: pass
+    return "OK", 200
 
-    if data.get("transactionType") != "IN":
-        return jsonify(ok=True)
+@app.route('/webhook/tsr', methods=['GET'])
+def tsr_webhook():
+    status = request.args.get('status')
+    val = request.args.get('value')
+    rid = request.args.get('request_id') # Bạn cần lưu request_id vào DB để khớp user_id
+    if status == '1':
+        # Logic cộng tiền dựa trên request_id
+        pass
+    return "OK", 200
 
-    note = str(data.get("description", "")).strip()
-    if not note.isdigit():
-        return jsonify(ok=True)
+# --- CÁC HÀM XỬ LÝ BOT ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    db_query("INSERT OR IGNORE INTO users (id, balance) VALUES (?, 0)", (user_id,), commit=True)
+    
+    # Menu cho User
+    keyboard = [
+        [InlineKeyboardButton("🎁 Mua Code Tân Thủ (0đ)", callback_query_data='buy_TANTU')],
+        [InlineKeyboardButton("💎 Mua Code VIP (20k)", callback_query_data='buy_VIP20')],
+        [InlineKeyboardButton("💳 Nạp Tiền", callback_query_data='menu_nap')],
+        [InlineKeyboardButton("👤 Tài Khoản", callback_query_data='profile')]
+    ]
+    # Nếu là Admin thì hiện thêm nút Admin
+    if user_id == ADMIN_ID:
+        keyboard.append([InlineKeyboardButton("🛠 MENU ADMIN", callback_query_data='admin_panel')])
+        
+    await update.message.reply_text("🔥 WELCOME TO XOCDIA88 BOT 🔥\nHệ thống bán code tự động 24/7", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    uid = int(note)
-    txid = "sepay_" + str(data["id"])
-    amount = int(data["amount"])
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = query.data
+    await query.answer()
 
-    if paid(txid):
-        return jsonify(ok=True)
+    if data == 'profile':
+        user = db_query("SELECT balance FROM users WHERE id = ?", (user_id,), fetchone=True)
+        await query.message.reply_text(f"👤 ID: `{user_id}`\n💰 Số dư: {user[0] if user else 0}đ", parse_mode='Markdown')
 
-    cur.execute("SELECT 1 FROM users WHERE tg_id=?", (uid,))
-    if not cur.fetchone():
-        return jsonify(ok=True)
+    elif data == 'menu_nap':
+        await query.message.reply_text(f"💳 **NẠP TỰ ĐỘNG**\n\n**Cách 1: Bank MSB**\nSTK: `80002422042`\nNội dung: `NAP {user_id}`\n\n**Cách 2: Nạp Thẻ**\nTruy cập: thesieure.com", parse_mode='Markdown')
 
-    add_money(uid, amount)
-    save_tx(txid)
+    elif data.startswith('buy_'):
+        c_type = data.replace('buy_', '')
+        price = 0 if c_type == 'TANTU' else 20000
+        user = db_query("SELECT balance FROM users WHERE id = ?", (user_id,), fetchone=True)
+        
+        if user and user[0] >= price:
+            code = db_query("SELECT id, code_val FROM codes WHERE type = ? AND status = 0 LIMIT 1", (c_type,), fetchone=True)
+            if code:
+                db_query("UPDATE users SET balance = balance - ? WHERE id = ?", (price, user_id), commit=True)
+                db_query("UPDATE codes SET status = 1 WHERE id = ?", (code[0],), commit=True)
+                await query.message.reply_text(f"✅ MUA THÀNH CÔNG!\n🎁 Code: `{code[1]}`", parse_mode='Markdown')
+            else:
+                await query.message.reply_text("❌ Hết hàng trong kho!")
+        else:
+            await query.message.reply_text("❌ Không đủ số dư!")
 
-    asyncio.run_coroutine_threadsafe(
-        bot.send_message(uid, f"✅ Nạp thành công\n💰 +{amount:,}đ"),
-        bot.loop
-    )
+    # --- LOGIC ADMIN ---
+    elif data == 'admin_panel' and user_id == ADMIN_ID:
+        kb = [
+            [InlineKeyboardButton("➕ Thêm Code", callback_query_data='adm_add')],
+            [InlineKeyboardButton("📊 Thống kê kho", callback_query_data='adm_stats')],
+            [InlineKeyboardButton("📢 Thông báo tổng", callback_query_data='adm_bc')]
+        ]
+        await query.message.reply_text("🛠 BẢNG ĐIỀU KHIỂN ADMIN", reply_markup=InlineKeyboardMarkup(kb))
 
-    return jsonify(ok=True)
+    elif data == 'adm_stats' and user_id == ADMIN_ID:
+        count = db_query("SELECT type, COUNT(*) FROM codes WHERE status = 0 GROUP BY type", fetchall=True)
+        txt = "📊 KHO HÀNG HIỆN TẠI:\n"
+        for r in count: txt += f"- {r[0]}: {r[1]} mã\n"
+        await query.message.reply_text(txt)
 
-Thread(target=lambda: app.run(host="0.0.0.0", port=10000)).start()
-bot.run_until_disconnected()
+    elif data == 'adm_add' and user_id == ADMIN_ID:
+        await query.message.reply_text("Gửi code theo định dạng: `LOAI CODE1, CODE2` (Ví dụ: `TANTU ABC, XYZ`)")
+
+# Admin nạp code bằng cách nhắn tin
+async def admin_msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    text = update.message.text
+    if " " in text:
+        parts = text.split(" ")
+        c_type = parts[0].upper()
+        codes = "".join(parts[1:]).split(",")
+        for c in codes:
+            db_query("INSERT INTO codes (type, code_val, status) VALUES (?, ?, 0)", (c_type, c.strip(),), commit=True)
+        await update.message.reply_text(f"✅ Đã thêm {len(codes)} mã vào kho {c_type}!")
+
+# --- KHỞI CHẠY ---
+def run_flask():
+    app.run(host='0.0.0.0', port=10000)
+
+if __name__ == '__main__':
+    init_db()
+    # Chạy Flask Webhook song song với Bot
+    Thread(target=run_flask).start()
+    
+    # Chạy Telegram Bot
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(handle_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_handler))
+    
+    print("Bot đang chạy...")
+    application.run_polling()
+  
