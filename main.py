@@ -13,7 +13,7 @@ from telethon.sessions import StringSession
 # ===== CẤU HÌNH HỆ THỐNG =====
 API_ID = int(os.environ.get("API_ID", 32709944))
 API_HASH = os.environ.get("API_HASH", "380d4e77de6daaa56fcff460fe9f2e4b")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8537896639:AAGMqSnET6PNOEr2T21q-OznWtzPjikKFT4")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8537896639:AAGDnV1rpRi1jW9WZNR7_Bf6QRsKKPkcs9M")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 7816353760))
 
 BASE_DIR = "/data" if os.path.exists("/data") else os.getcwd()
