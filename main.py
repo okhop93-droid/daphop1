@@ -16,7 +16,6 @@ BOT_TOKEN = "8404770438:AAHeGHh5CVtLAuNvX4Fo6F_I-OKG0Px1_g0"
 ADMIN_ID = 7816353760
 API_URL = "https://sunwinsaygex-production.up.railway.app/api/sun"
 
-# THÔNG TIN NGÂN HÀNG CỦA BẠN
 STK_MSB = "96886693002613"  
 TEN_CHU_TK = "NGUYEN THANH HOP" 
 
@@ -45,7 +44,7 @@ def db_fetch(query, params=()):
     with sqlite3.connect(DB_FILE) as conn:
         return conn.cursor().execute(query, params).fetchall()
 
-# ===== BOT LOGIC =====
+# ===== MENU NÚT BẤM =====
 def main_menu(uid):
     buttons = [
         [Button.inline("🚀 CHẠY DỰ ĐOÁN", b"start_predict"), Button.inline("🛑 DỪNG DỰ ĐOÁN", b"stop_predict")],
@@ -60,46 +59,27 @@ async def start(event):
     uid = event.sender_id
     if not db_fetch("SELECT user_id FROM users WHERE user_id=?", (uid,)):
         db_exec("INSERT INTO users (user_id) VALUES (?)", (uid,))
-    
-    await event.respond(
-        "🦅 **BOT DỰ ĐOÁN TÀI XỈU SUNWIN AI**\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Sử dụng công nghệ AI nhận diện cầu Sunwin.\n"
-        "Vui lòng nạp tiền để bắt đầu chạy dự đoán.",
-        buttons=main_menu(uid)
-    )
+    await event.respond("🦅 **BOT DỰ ĐOÁN SUNWIN AI**\n━━━━━━━━━━━━━━━━━━━━", buttons=main_menu(uid))
 
+# ===== LOGIC DỰ ĐOÁN =====
 async def prediction_task(uid, chat_id):
     last_phien = ""
     while True:
         user = db_fetch("SELECT status FROM users WHERE user_id=?", (uid,))
-        if not user or user[0][0] == 0:
-            break
-            
+        if not user or user[0][0] == 0: break
         try:
             response = requests.get(API_URL, timeout=10).json()
             phien_hien_tai = response.get("phien_hien_tai")
-            
             if phien_hien_tai != last_phien:
                 last_phien = phien_hien_tai
                 du_doan = response.get("du_doan", "N/A")
                 tin_cay = response.get("do_tin_cay", "0")
-                chi_tiet = response.get("chi_tiet", "")
-                
-                msg = (
-                    f"🎰 **PHIÊN DỰ ĐOÁN: `{phien_hien_tai}`**\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🔮 Dự đoán: **{du_doan.upper()}**\n"
-                    f"📊 Độ tin cậy: `{tin_cay}%`\n"
-                    f"📝 Phân tích: `{chi_tiet}`\n"
-                    f"━━━━━━━━━━━━━━━━━━━━"
-                )
+                msg = f"🎰 **PHIÊN: `{phien_hien_tai}`**\n🔮 Dự đoán: **{du_doan.upper()}**\n📊 Độ tin cậy: `{tin_cay}%`"
                 await bot.send_message(chat_id, msg)
-        except Exception as e:
-            logger.error(f"Lỗi API Sunwin: {e}")
-            
+        except: pass
         await asyncio.sleep(8) 
 
+# ===== XỬ LÝ SỰ KIỆN NÚT BẤM (FIXED) =====
 @bot.on(events.CallbackQuery)
 async def callback_handler(event):
     uid = event.sender_id
@@ -109,75 +89,52 @@ async def callback_handler(event):
         user = db_fetch("SELECT balance FROM users WHERE user_id=?", (uid,))
         if not user or user[0][0] <= 0:
             return await event.answer("❌ Tài khoản không đủ số dư!", alert=True)
-        
         db_exec("UPDATE users SET status = 1 WHERE user_id=?", (uid,))
-        await event.respond("🚀 **Đã bật AI!** Kèo sẽ tự gửi khi có phiên mới.")
+        await event.respond("🚀 **Đã bật AI!**")
         asyncio.create_task(prediction_task(uid, event.chat_id))
 
     elif data == b"stop_predict":
         db_exec("UPDATE users SET status = 0 WHERE user_id=?", (uid,))
-        await event.respond("🛑 **Đã dừng nhận dự đoán.**")
+        await event.respond("🛑 **Đã dừng dự đoán.**")
 
     elif data == b"user_info":
-        user = db_fetch("SELECT balance, total_bet FROM users WHERE user_id=?", (uid,))
+        user = db_fetch("SELECT balance FROM users WHERE user_id=?", (uid,))
         msg = f"👤 **TÀI KHOẢN**\n🆔 ID: `{uid}`\n💰 Số dư: `{user[0][0]:,} VNĐ`"
         await event.respond(msg, buttons=main_menu(uid))
 
     elif data == b"deposit":
-        # Thêm mã QR VietQR để khách quét nạp nhanh hơn
         qr_url = f"https://img.vietqr.io/image/MSB-{STK_MSB}-compact2.png?amount=50000&addInfo=NAP%20{uid}&accountName={TEN_CHU_TK}"
-        msg = (
-            f"🏦 **NẠP TIỀN TỰ ĐỘNG**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💳 STK: `{STK_MSB}` (MSB)\n"
-            f"👤 Chủ TK: **{TEN_CHU_TK}**\n"
-            f"📝 Nội dung: `NAP {uid}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"⚠️ *Vui lòng ghi đúng nội dung để được cộng tiền tự động!*"
-        )
+        msg = f"🏦 **NẠP TIỀN**\nSTK: `{STK_MSB}`\nNội dung: `NAP {uid}`"
         await event.respond(msg, buttons=[[Button.url("🖼 QUÉT MÃ QR", qr_url)]])
 
-# ===== SEPAY WEBHOOK (XỬ LÝ NẠP TỰ ĐỘNG) =====
+    elif data == b"admin_stats":
+        if uid != ADMIN_ID: return
+        total_users = db_fetch("SELECT COUNT(*) FROM users")[0][0]
+        total_bal = db_fetch("SELECT SUM(balance) FROM users")[0][0] or 0
+        await event.respond(f"📊 **THỐNG KÊ ADMIN**\n👥 Tổng khách: `{total_users}`\n💰 Tổng số dư: `{total_bal:,}đ`")
+
+# ===== SEPAY WEBHOOK (NẠP TỰ ĐỘNG) =====
 app = Flask(__name__)
 main_loop = None
 
 @app.route('/sepay-webhook', methods=['POST'])
 def sepay_webhook():
     data = request.json
-    if not data: return jsonify({"status": "error"}), 400
-    
-    content = data.get("content", "") # Nội dung chuyển khoản
-    amount = int(data.get("transferAmount", 0)) # Số tiền nhận
-    
-    # Tìm mã NAP ID trong nội dung chuyển khoản
+    if not data: return jsonify({"status": "no_data"}), 400
+    content = data.get("content", "")
+    amount = int(data.get("transferAmount", 0))
     match = re.search(r'NAP\s+(\d+)', content.upper())
-    
     if match and amount > 0:
         uid = int(match.group(1))
-        user_exists = db_fetch("SELECT user_id FROM users WHERE user_id=?", (uid,))
-        
-        if user_exists:
-            # Cộng tiền vào database
+        if db_fetch("SELECT user_id FROM users WHERE user_id=?", (uid,)):
             db_exec("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
-            
-            # Gửi thông báo cho khách hàng
-            msg = (
-                f"💰 **THÔNG BÁO NẠP TIỀN**\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"✅ Số dư đã cộng: `+{amount:,}đ`\n"
-                f"👤 Tài khoản: `{uid}`\n"
-                f"━━━━━━━━━━━━━━━━━━━━"
-            )
-            # Dùng run_coroutine_threadsafe để gửi tin nhắn từ luồng Flask sang luồng Telegram
             if main_loop:
-                asyncio.run_coroutine_threadsafe(bot.send_message(uid, msg), main_loop)
-                asyncio.run_coroutine_threadsafe(bot.send_message(ADMIN_ID, f"🔔 **ADMIN:** Khách `{uid}` vừa nạp `{amount:,}đ`"), main_loop)
-            
+                asyncio.run_coroutine_threadsafe(bot.send_message(uid, f"💰 **NẠP THÀNH CÔNG!**\n+ `{amount:,} VNĐ`"), main_loop)
             return jsonify({"status": "success"}), 200
     return jsonify({"status": "ignored"}), 200
 
 @app.route('/')
-def home(): return "SYSTEM OPERATIONAL"
+def home(): return "RUNNING"
 
 async def runner():
     global main_loop
@@ -188,12 +145,8 @@ async def runner():
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    # Chạy Flask Server (Tắt use_reloader để không bị chạy 2 bot gây lỗi gửi 2 tin nhắn)
-    port = int(os.environ.get("PORT", 8080))
-    Thread(target=lambda: app.run(host='0.0.0.0', port=port, use_reloader=False), daemon=True).start()
-    
+    # Fix Render: Tắt use_reloader để không bị kẹt nút bấm
+    Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)), use_reloader=False), daemon=True).start()
     try:
         asyncio.run(runner())
-    except KeyboardInterrupt:
-        pass
-    
+    except KeyboardInterrupt: pass
