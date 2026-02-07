@@ -24,7 +24,6 @@ DB_FILE = "sunwin_bot.db"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Khởi tạo client nhưng CHƯA .start() ở đây để tránh lỗi loop trên Render
 bot = TelegramClient('bot_session', API_ID, API_HASH)
 
 # ===== DATABASE CORE =====
@@ -78,7 +77,6 @@ async def prediction_task(uid, chat_id):
             break
             
         try:
-            # Lấy dữ liệu từ API Railway theo cấu hình bạn cung cấp
             response = requests.get(API_URL, timeout=10).json()
             phien_hien_tai = response.get("phien_hien_tai")
             
@@ -126,15 +124,20 @@ async def callback_handler(event):
         await event.respond(msg, buttons=main_menu(uid))
 
     elif data == b"deposit":
+        # Thêm mã QR VietQR để khách quét nạp nhanh hơn
+        qr_url = f"https://img.vietqr.io/image/MSB-{STK_MSB}-compact2.png?amount=50000&addInfo=NAP%20{uid}&accountName={TEN_CHU_TK}"
         msg = (
             f"🏦 **NẠP TIỀN TỰ ĐỘNG**\n"
-            f"STK: `{STK_MSB}` (MSB)\n"
-            f"Chủ TK: {TEN_CHU_TK}\n"
-            f"Nội dung: `NAP {uid}`"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💳 STK: `{STK_MSB}` (MSB)\n"
+            f"👤 Chủ TK: **{TEN_CHU_TK}**\n"
+            f"📝 Nội dung: `NAP {uid}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ *Vui lòng ghi đúng nội dung để được cộng tiền tự động!*"
         )
-        await event.respond(msg)
+        await event.respond(msg, buttons=[[Button.url("🖼 QUÉT MÃ QR", qr_url)]])
 
-# ===== SEPAY WEBHOOK & FLASK =====
+# ===== SEPAY WEBHOOK (XỬ LÝ NẠP TỰ ĐỘNG) =====
 app = Flask(__name__)
 main_loop = None
 
@@ -143,37 +146,54 @@ def sepay_webhook():
     data = request.json
     if not data: return jsonify({"status": "error"}), 400
     
-    content = data.get("content", "")
-    amount = int(data.get("transferAmount", 0))
+    content = data.get("content", "") # Nội dung chuyển khoản
+    amount = int(data.get("transferAmount", 0)) # Số tiền nhận
+    
+    # Tìm mã NAP ID trong nội dung chuyển khoản
     match = re.search(r'NAP\s+(\d+)', content.upper())
     
     if match and amount > 0:
         uid = int(match.group(1))
-        user = db_fetch("SELECT user_id FROM users WHERE user_id=?", (uid,))
-        if user:
+        user_exists = db_fetch("SELECT user_id FROM users WHERE user_id=?", (uid,))
+        
+        if user_exists:
+            # Cộng tiền vào database
             db_exec("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
-            msg = f"💰 **NẠP THÀNH CÔNG!**\n+ `{amount:,}đ`."
-            asyncio.run_coroutine_threadsafe(bot.send_message(uid, msg), main_loop)
+            
+            # Gửi thông báo cho khách hàng
+            msg = (
+                f"💰 **THÔNG BÁO NẠP TIỀN**\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"✅ Số dư đã cộng: `+{amount:,}đ`\n"
+                f"👤 Tài khoản: `{uid}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
+            )
+            # Dùng run_coroutine_threadsafe để gửi tin nhắn từ luồng Flask sang luồng Telegram
+            if main_loop:
+                asyncio.run_coroutine_threadsafe(bot.send_message(uid, msg), main_loop)
+                asyncio.run_coroutine_threadsafe(bot.send_message(ADMIN_ID, f"🔔 **ADMIN:** Khách `{uid}` vừa nạp `{amount:,}đ`"), main_loop)
+            
             return jsonify({"status": "success"}), 200
     return jsonify({"status": "ignored"}), 200
+
+@app.route('/')
+def home(): return "SYSTEM OPERATIONAL"
 
 async def runner():
     global main_loop
     main_loop = asyncio.get_event_loop()
     init_db()
-    # Khởi động bot bên trong loop để tránh lỗi loop change
     await bot.start(bot_token=BOT_TOKEN)
     logger.info("🚀 Bot Predict Online!")
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    # Chạy Flask Server cho Webhook
+    # Chạy Flask Server (Tắt use_reloader để không bị chạy 2 bot gây lỗi gửi 2 tin nhắn)
     port = int(os.environ.get("PORT", 8080))
     Thread(target=lambda: app.run(host='0.0.0.0', port=port, use_reloader=False), daemon=True).start()
     
-    # Khởi chạy asyncio loop ổn định cho Render
     try:
         asyncio.run(runner())
     except KeyboardInterrupt:
         pass
-        
+    
