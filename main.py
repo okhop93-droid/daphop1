@@ -11,14 +11,18 @@ from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 
 # ===== CẤU HÌNH HỆ THỐNG =====
-API_ID = 36437338 # Thay bằng API_ID của bạn
-API_HASH = "18d34c7efc396d277f3db62baa078efc" # Thay bằng API_HASH của bạn
+API_ID = 36437338 
+API_HASH = "18d34c7efc396d277f3db62baa078efc" 
 BOT_TOKEN = "8404770438:AAHeGHh5CVtLAuNvX4Fo6F_I-OKG0Px1_g0"
 ADMIN_ID = 7816353760
 API_URL = "https://sunwinsaygex-production.up.railway.app/api/sun"
 
+# THÔNG TIN NGÂN HÀNG CỦA BẠN
+STK_MSB = "96886693002613"  # Số tài khoản MSB của bạn
+TEN_CHU_TK = "NGUYEN THANH HOP" # Tên chủ tài khoản của bạn (Viết hoa không dấu)
+
 DB_FILE = "sunwin_bot.db"
-PRICE_PER_SESSION = 1000  # Giá mỗi lần dự đoán (nếu muốn thu phí theo phiên) hoặc dùng gói
+PRICE_PER_SESSION = 1000  
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,11 +72,9 @@ async def start(event):
         buttons=main_menu(uid)
     )
 
-# Luồng chạy dự đoán theo API
 async def prediction_task(uid, chat_id):
     last_phien = ""
     while True:
-        # Kiểm tra trạng thái người dùng có đang "Chạy" không
         user = db_fetch("SELECT status FROM users WHERE user_id=?", (uid,))
         if not user or user[0][0] == 0:
             break
@@ -99,7 +101,7 @@ async def prediction_task(uid, chat_id):
         except Exception as e:
             logger.error(f"Lỗi API: {e}")
             
-        await asyncio.sleep(5) # Kiểm tra API mỗi 5 giây
+        await asyncio.sleep(5) 
 
 @bot.on(events.CallbackQuery)
 async def callback_handler(event):
@@ -133,11 +135,14 @@ async def callback_handler(event):
 
     elif data == b"deposit":
         msg = (
-            f"🏦 **NẠP TIỀN TỰ ĐỘNG (MSB)**\n"
+            f"🏦 **HƯỚNG DẪN NẠP TIỀN TỰ ĐỘNG**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Nội dung chuyển khoản:\n"
-            f"👉 `NAP {uid}`\n\n"
-            f"*(Hệ thống sẽ cộng tiền sau 1-3 phút)*"
+            f"🏦 Ngân hàng: **MSB (Maritime Bank)**\n"
+            f"🔢 STK: `{STK_MSB}`\n"
+            f"👤 Chủ TK: **{TEN_CHU_TK}**\n"
+            f"📝 Nội dung CK: `NAP {uid}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ **Lưu ý:** Chuyển đúng nội dung để được cộng tiền tự động sau 1-3 phút."
         )
         await event.respond(msg)
 
@@ -164,7 +169,7 @@ def sepay_webhook():
         user = db_fetch("SELECT user_id FROM users WHERE user_id=?", (uid,))
         if user:
             db_exec("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
-            msg = f"💰 **NẠP TIỀN THÀNH CÔNG!**\n✅ Số tiền: `+{amount:,}đ`"
+            msg = f"💰 **NẠP TIỀN THÀNH CÔNG!**\n✅ Số tiền: `+{amount:,}đ` đã được cộng vào tài khoản."
             asyncio.run_coroutine_threadsafe(bot.send_message(uid, msg), main_loop)
             return jsonify({"status": "success"}), 200
     return jsonify({"status": "ignored"}), 200
@@ -181,4 +186,4 @@ if __name__ == '__main__':
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(runner())
-                
+            
