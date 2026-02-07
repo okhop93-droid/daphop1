@@ -6,7 +6,7 @@ import random
 import logging
 from datetime import datetime
 from threading import Thread
-from flask import Flask, request, jsonify # Bổ sung request, jsonify để nhận Webhook
+from flask import Flask, request, jsonify
 from telethon import TelegramClient, events, Button as TButton
 from telethon.sessions import StringSession
 
@@ -152,8 +152,7 @@ async def cb_handler(e):
             msg += f"▪️ {name}: {st}\n"
         await e.respond(msg)
     elif data == "deposit":
-        # Tạo URL VietQR để khách quét cho nhanh (tùy chọn)
-        qr_url = f"https://img.vietqr.io/image/MSB-0336293609-compact2.png?amount=50000&addInfo=NAP%20{uid}&accountName=NGUYEN%20THANH%20HOP"
+        qr_url = f"https://img.vietqr.io/image/MSB-96886693002613-compact2.png?amount=50000&addInfo=NAP%20{uid}&accountName=NGUYEN%20THANH%20HOP"
         await e.edit(
             f"🏦 **HƯỚNG DẪN NẠP TIỀN**\n"
             f"━━━━━━━━━━━━━\n"
@@ -175,7 +174,7 @@ async def cb_handler(e):
         await e.respond(f"✅ **MUA THÀNH CÔNG!**\n🎁 Mã Giftcode của bạn là: `{code}`")
         await e.answer("Đã giao hàng thành công!")
 
-# --- LOGIC ADMIN DÀN ACC (GIỮ NGUYÊN) ---
+# --- LOGIC ADMIN DÀN ACC ---
 @bot.on(events.NewMessage(from_users=ADMIN_ID, pattern=r"/addacc (.+)"))
 async def add_acc_cmd(e):
     phone = e.pattern_match.group(1).strip()
@@ -215,7 +214,7 @@ async def pay_cmd(e):
 
 # ===== KHỞI CHẠY & SEPAY WEBHOOK =====
 app = Flask(__name__)
-main_loop = None # Khai báo loop toàn cục
+main_loop = None 
 
 @app.route('/')
 def home(): return "SYSTEM OPERATIONAL"
@@ -224,12 +223,8 @@ def home(): return "SYSTEM OPERATIONAL"
 def sepay_webhook():
     data = request.json
     if not data: return jsonify({"status": "no_data"}), 400
-    
-    # Lấy thông tin từ SePay gửi sang
-    content = data.get("content", "") # Nội dung: NAP 12345678
+    content = data.get("content", "")
     amount = int(data.get("transferAmount", 0))
-    
-    # Tìm User ID trong nội dung chuyển khoản
     match = re.search(r'NAP\s+(\d+)', content.upper())
     if match and amount > 0:
         uid = int(match.group(1))
@@ -237,7 +232,6 @@ def sepay_webhook():
         if user:
             db_exec("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
             msg = f"💰 **NẠP TIỀN TỰ ĐỘNG THÀNH CÔNG**\n━━━━━━━━━━━━━\n✅ Số dư đã cộng: `+{amount:,}đ`\n👤 Tài khoản: `{uid}`"
-            # Gửi thông báo bằng loop chính của Telegram
             asyncio.run_coroutine_threadsafe(bot.send_message(uid, msg), main_loop)
             asyncio.run_coroutine_threadsafe(bot.send_message(ADMIN_ID, f"🔔 **BIẾN ĐỘNG SỐ DƯ (MSB)**\n{msg}"), main_loop)
             return jsonify({"status": "success"}), 200
@@ -264,10 +258,10 @@ async def runner():
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    # Chạy Flask Server trong Thread riêng
+    # Flask: use_reloader=False để tránh khởi chạy bot 2 lần gây lỗi gửi 2 tin nhắn
     Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)), use_reloader=False), daemon=True).start()
     
-    # Chạy Telegram Bot
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(runner())
+        
