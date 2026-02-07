@@ -13,7 +13,7 @@ from telethon.sessions import StringSession
 # ===== CẤU HÌNH HỆ THỐNG =====
 API_ID = int(os.environ.get("API_ID", 36437338))
 API_HASH = os.environ.get("API_HASH", "18d34c7efc396d277f3db62baa078efc")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8537896639:AAFJsUf6stfyT21Je2w1kH8OBFwK2xoT8OA")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8361903272:AAG6YoS1m05Bgkooq0Kim1zeM5LsDGcSma8")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 7816353760))
 
 # Thông tin nạp tiền MSB
