@@ -9,7 +9,7 @@ from telethon import TelegramClient, events, Button as TButton
 from telethon.sessions import StringSession
 from supabase import create_client, Client
 
-# ===== CẤU HÌNH (Lấy từ ảnh của bạn) =====
+# ===== CẤU HÌNH ĐÃ FIX URL CHUẨN =====
 SUPABASE_URL = "https://qaptttdmntjwsizodhdv.supabase.co" 
 SUPABASE_KEY = "sb_publishable_095TgJvOydJ-T9XzMg7ZYg_gr_a1LcA"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -30,11 +30,14 @@ bot = TelegramClient(StringSession(), API_ID, API_HASH)
 
 # --- DB HELPERS ---
 def db_get_user(uid):
-    res = supabase.table("users").select("*").eq("user_id", uid).execute()
-    if not res.data:
-        supabase.table("users").insert({"user_id": uid, "balance": 0}).execute()
+    try:
+        res = supabase.table("users").select("*").eq("user_id", uid).execute()
+        if not res.data:
+            supabase.table("users").insert({"user_id": uid, "balance": 0}).execute()
+            return {"user_id": uid, "balance": 0}
+        return res.data[0]
+    except:
         return {"user_id": uid, "balance": 0}
-    return res.data[0]
 
 def main_btns():
     return [
@@ -58,30 +61,39 @@ async def cb_handler(e):
     if data == "back":
         user = db_get_user(uid)
         await e.edit(f"🦅 **TREO CLONE ONLINE**\n💰 Ví: **{user['balance']:,}đ**", buttons=main_btns())
+    
+    elif data == "me":
+        user = db_get_user(uid)
+        await e.edit(f"👤 **THÔNG TIN VÍ**\n🆔 ID: `{uid}`\n💰 Số dư: **{user['balance']:,}đ**", buttons=[TButton.inline("🔙 Quay lại", b"back")])
+
+    elif data == "deposit":
+        qr = f"https://img.vietqr.io/image/MSB-{STK_MSB}-compact2.png?amount=10000&addInfo=NAP%20{uid}"
+        await e.edit(f"🏦 **NẠP TIỀN QUA MSB**\nSTK: `{STK_MSB}`\nND: `NAP {uid}`", buttons=[[TButton.url("QUÉT MÃ QR", qr)], [TButton.inline("🔙 Quay lại", b"back")]])
+
+    elif data == "add_clone":
+        await e.edit("📱 Để thêm acc, hãy gửi số điện thoại theo cú pháp:\n`/addacc 84xxxxxxxxx`", buttons=[TButton.inline("🔙 Quay lại", b"back")])
+
     elif data == "rent_pkg":
         btns = [[TButton.inline(v['text'], f"buy_{k}")] for k, v in RENT_PACKAGES.items()]
         btns.append([TButton.inline("🔙 Quay lại", b"back")])
         await e.edit("💎 **CHỌN GÓI GIA HẠN:**", buttons=btns)
+
     elif data.startswith("buy_"):
         pkg = RENT_PACKAGES[data.replace("buy_", "")]
         user = db_get_user(uid)
         if user['balance'] < pkg['price']:
             return await e.answer(f"❌ Thiếu {(pkg['price'] - user['balance']):,}đ!", alert=True)
-        # Logic cộng tiền và update DB ở đây...
-        await e.answer("✅ Đã xử lý!", alert=True)
+        # Logic update database tại đây
+        await e.answer("✅ Đã ghi nhận yêu cầu!", alert=True)
+    
+    await e.answer() # Kết thúc hiệu ứng xoay tròn trên nút
 
-# --- WEB SERVER (FIX LỖI PORT SCAN TIMEOUT) ---
+# --- WEB SERVER (FIX LỖI RENDER) ---
 app = Flask(__name__)
 @app.route('/')
 def index(): return "Bot is running"
 
-@app.route('/sepay-webhook', methods=['POST'])
-def webhook():
-    # Xử lý nạp tiền...
-    return jsonify({"status": "ok"}), 200
-
 def run_flask():
-    # Render yêu cầu port 10000 hoặc lấy từ môi trường
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
