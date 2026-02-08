@@ -7,7 +7,7 @@ from telethon.sessions import StringSession
 from supabase import create_client, Client
 
 # ===== CẤU HÌNH ĐÃ FIX THEO ẢNH CỦA BẠN =====
-SUPABASE_URL = "https://qaptttdmntjwsizoovre.supabase.co" # Đã sửa theo ảnh thực tế
+SUPABASE_URL = "https://qaptttdmntjwsizodhdv.supabase.co" # Đã sửa theo ảnh thực tế
 SUPABASE_KEY = "sb_publishable_095TgJvOydJ-T9XzMg7ZYg_gr_a1LcA"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
