@@ -6,15 +6,14 @@ from telethon import TelegramClient, events, Button as TButton
 from telethon.sessions import StringSession
 from supabase import create_client, Client
 
-# ===== FIX URL ĐÚNG THEO LOG CỦA BẠN =====
-SUPABASE_URL = "https://qaptttdmntjwsizoovre.supabase.co" 
+# ===== CẤU HÌNH ĐÃ FIX THEO ẢNH CỦA BẠN =====
+SUPABASE_URL = "https://qaptttdmntjwsizoovre.supabase.co" # Đã sửa theo ảnh thực tế
 SUPABASE_KEY = "sb_publishable_095TgJvOydJ-T9XzMg7ZYg_gr_a1LcA"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 API_ID = 36437338
 API_HASH = "18d34c7efc396d277f3db62baa078efc"
 BOT_TOKEN = "8361903272:AAFcJMZZ0ykvrFBoH0TYP7h7SlwHbim56tU"
-STK_MSB = "96886693002613"
 BOT_GAME_TARGET = "xocdia88_bot_uytin_bot"
 
 logging.basicConfig(level=logging.INFO)
@@ -37,28 +36,37 @@ async def worker_grab_loop(client, phone, owner_id):
                         await bot.send_message(owner_id, f"🎊 **CLONE `{phone}` TRÚNG!**\n🔑 Code: `{code}`")
                 except: pass
 
-# --- FIX LỖI NHẮN 2 LẦN ---
+# --- CHỐNG SPAM 2 TIN (QUAN TRỌNG) ---
 @bot.on(events.NewMessage(pattern="/start"))
 async def start(e):
     try:
-        res = supabase.table("users").select("*").eq("user_id", e.sender_id).execute()
+        # Lấy số dư thực tế từ DB
+        res = supabase.table("users").select("balance").eq("user_id", e.sender_id).execute()
         bal = res.data[0]['balance'] if res.data else 0
+        
         await e.respond(f"🦅 **TREO CLONE ONLINE**\n💰 Ví: **{bal:,}đ**", 
-            buttons=[[TButton.inline("➕ THÊM ACC", b"add_clone"), TButton.inline("👤 VÍ", b"me")]])
-    except: pass
-    raise events.StopPropagation # CỰC KỲ QUAN TRỌNG ĐỂ CHỐNG SPAM
+            buttons=[
+                [TButton.inline("➕ THÊM ACC", b"add"), TButton.inline("⏳ GIA HẠN", b"rent")],
+                [TButton.inline("👤 VÍ TIỀN", b"me"), TButton.inline("🏦 NẠP TIỀN", b"dep")],
+                [TButton.inline("📱 CLONE CỦA TÔI", b"list")]
+            ])
+    except Exception as ex:
+        logging.error(f"Lỗi DB: {ex}")
+    
+    # Lệnh này cực kỳ quan trọng để ngăn bản bot cũ phản hồi đè lên
+    raise events.StopPropagation 
 
-# --- WEBHOOK NẠP TIỀN ---
+# --- WEB SERVER FIX PORT RENDER ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "BOT ALIVE"
+def home(): return "BOT IS LIVE"
 
 @app.route('/sepay-webhook', methods=['POST'])
 def webhook():
-    data = request.json
-    m = re.search(r'NAP\s+(\d+)', data.get("content", "").upper())
+    d = request.json
+    m = re.search(r'NAP\s+(\d+)', d.get("content", "").upper())
     if m:
-        uid, amt = int(m.group(1)), int(data.get("transferAmount", 0))
+        uid, amt = int(m.group(1)), int(d.get("transferAmount", 0))
         res = supabase.table("users").select("balance").eq("user_id", uid).execute()
         new_bal = (res.data[0]['balance'] if res.data else 0) + amt
         supabase.table("users").upsert({"user_id": uid, "balance": new_bal}).execute()
@@ -67,16 +75,26 @@ def webhook():
 
 async def main():
     await bot.start(bot_token=BOT_TOKEN)
-    # Tự bật lại clone
-    clones = supabase.table("my_clones").select("*").execute()
-    for c in clones.data:
-        try:
-            cl = TelegramClient(StringSession(c['session']), API_ID, API_HASH)
-            await cl.connect()
-            asyncio.create_task(worker_grab_loop(cl, c['phone'], c['owner_id']))
-        except: pass
+    print("Bot started successfully.")
+    
+    # Tự khởi động lại các clone đang treo
+    try:
+        clones = supabase.table("my_clones").select("*").execute()
+        for c in clones.data:
+            try:
+                cl = TelegramClient(StringSession(c['session']), API_ID, API_HASH)
+                await cl.connect()
+                asyncio.create_task(worker_grab_loop(cl, c['phone'], c['owner_id']))
+            except: pass
+    except: pass
+    
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000))), daemon=True).start()
-    asyncio.get_event_loop().run_until_complete(main())
+    # Chạy Web Server trong luồng riêng để Render không báo lỗi Port
+    port = int(os.environ.get("PORT", 10000))
+    Thread(target=lambda: app.run(host='0.0.0.0', port=port), daemon=True).start()
+    
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+        
