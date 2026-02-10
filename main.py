@@ -84,7 +84,7 @@ def main_btns():
         [TButton.inline("➕ THÊM ACC MỚI", b"add_clone")],
         [TButton.inline("📱 DANH SÁCH CLONE", b"list_clones")],
         [TButton.inline("🏦 NẠP TIỀN", b"dep_menu"), TButton.inline("👤 VÍ CỦA TÔI", b"me")],
-        [TButton.url("💬 HỖ TRỢ", "https://t.me/your_admin")]
+        [TButton.url("💬 HỖ TRỢ", "https://t.me/nth_dev")]
     ]
 
 @bot.on(events.NewMessage(pattern="/start"))
