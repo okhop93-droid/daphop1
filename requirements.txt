@@ -1,4 +1,6 @@
 telethon
-flask
-requests
 supabase
+quart
+asyncio
+nest-asyncio
+hypercorn
