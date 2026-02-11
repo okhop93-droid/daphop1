@@ -87,15 +87,15 @@ async def run_clone_worker(session_str, phone, owner_id, clone_id):
 def get_main_menu(uid):
     user = db_get_user(uid)
     txt = (
-        f"🌟 **HỆ THỐNG THUÊ BOT ĐẬP HỘP** 🌟\n"
+        f"🌟 **HỆ THỐNG QUẢN LÝ CLONE** 🌟\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"👤 **ID:** `{uid}`\n"
         f"💰 **Số dư:** `{user['balance']:,} VNĐ`\n"
         f"━━━━━━━━━━━━━━━━━━"
     )
     btns = [
-        [TButton.inline("➕ THÊM CLONE MỚI", b"add_clone")],
-        [TButton.inline("📱 QUẢN LÝ THỜI GIAN", b"list_clones")],
+        [TButton.inline("➕ THÊM CLONE (MIỄN PHÍ)", b"add_clone")],
+        [TButton.inline("📱 DANH SÁCH & THUÊ BOT", b"list_clones")],
         [TButton.inline("🏦 NẠP TIỀN", b"dep_menu"), TButton.inline("📜 LỊCH SỬ", b"history")],
         [TButton.url("💬 HỖ TRỢ", "https://t.me/nth_dev")]
     ]
@@ -128,22 +128,24 @@ async def callback_handler(e):
 
     elif data == "list_clones":
         res = supabase.table("my_clones").select("*").eq("owner_id", uid).execute()
-        if not res.data: return await e.edit("❌ Bạn chưa có clone nào.", buttons=[[TButton.inline("🔙", b"back")]])
+        if not res.data: return await e.edit("❌ Bạn chưa có clone nào. Hãy thêm clone trước!", buttons=[[TButton.inline("🔙", b"back")]])
         
         btns = []
         for c in res.data:
             exp = datetime.fromisoformat(c['expiry'].replace('Z', '+00:00'))
-            status = "🔴 HẾT HẠN" if exp < datetime.now(timezone.utc) else "🟢 ĐANG CHẠY"
+            status = "🔴 CHƯA THUÊ" if exp <= datetime.now(timezone.utc) else "🟢 ĐANG CHẠY"
             btns.append([TButton.inline(f"{status} | {c['phone']}", f"mng_{c['id']}")])
         btns.append([TButton.inline("🔙 QUAY LẠI", b"back")])
-        await e.edit("📱 **DANH SÁCH CLONE & HẠN THUÊ:**", buttons=btns)
+        await e.edit("📱 **DANH SÁCH CLONE:**\n\nBấm vào từng acc để thuê Bot đập hộp.", buttons=btns)
 
     elif data.startswith("mng_"):
         cid = data.split("_")[1]
         c = supabase.table("my_clones").select("*").eq("id", cid).execute().data[0]
-        exp = datetime.fromisoformat(c['expiry'].replace('Z', '+00:00')).strftime('%H:%M %d/%m/%Y')
-        txt = f"⚙️ **CLONE:** `{c['phone']}`\n⏳ Hạn thuê bot: `{exp}`"
-        btns = [[TButton.inline(f"⏳ GIA HẠN 24H ({PRICE_PER_DAY:,}đ)", f"ren_{cid}")],
+        exp_dt = datetime.fromisoformat(c['expiry'].replace('Z', '+00:00'))
+        exp_str = exp_dt.strftime('%H:%M %d/%m/%Y') if exp_dt > datetime.now(timezone.utc) else "Đã hết hạn/Chưa thuê"
+        
+        txt = f"⚙️ **CLONE:** `{c['phone']}`\n━━━━━━━━━━━━━\n⏳ Hạn thuê Bot: `{exp_str}`"
+        btns = [[TButton.inline(f"⏳ THUÊ BOT 24H ({PRICE_PER_DAY:,}đ)", f"ren_{cid}")],
                 [TButton.inline("🗑 XÓA CLONE", f"del_{cid}")],
                 [TButton.inline("🔙 QUAY LẠI", b"list_clones")]]
         await e.edit(txt, buttons=btns)
@@ -151,18 +153,19 @@ async def callback_handler(e):
     elif data.startswith("ren_"):
         cid = data.split("_")[1]
         user = db_get_user(uid)
-        if user['balance'] < PRICE_PER_DAY: return await e.answer("❌ Số dư không đủ!", alert=True)
+        if user['balance'] < PRICE_PER_DAY: return await e.answer("❌ Số dư không đủ 10,000đ!", alert=True)
         
         c = supabase.table("my_clones").select("*").eq("id", cid).execute().data[0]
         old_exp = datetime.fromisoformat(c['expiry'].replace('Z', '+00:00'))
+        # Nếu đã hết hạn thì tính từ hiện tại, nếu còn hạn thì cộng dồn
         new_exp = max(old_exp, datetime.now(timezone.utc)) + timedelta(days=1)
         
         supabase.table("users").update({"balance": user['balance'] - PRICE_PER_DAY}).eq("user_id", uid).execute()
         supabase.table("my_clones").update({"expiry": new_exp.isoformat()}).eq("id", cid).execute()
         
-        await e.answer("✅ Gia hạn thành công! Bot đã bắt đầu đập hộp lại.", alert=True)
+        await e.answer("✅ Thuê Bot thành công! Acc đã bắt đầu làm việc.", alert=True)
         
-        # Tự động kích hoạt lại nếu bot đang dừng
+        # Kích hoạt acc chạy ngay lập tức
         task_key = f"{uid}_{c['phone']}"
         if task_key not in active_tasks:
             active_tasks[task_key] = asyncio.create_task(run_clone_worker(c['session'], c['phone'], uid, cid))
@@ -171,7 +174,7 @@ async def callback_handler(e):
     elif data.startswith("del_"):
         cid = data.split("_")[1]
         supabase.table("my_clones").delete().eq("id", cid).execute()
-        await e.answer("🗑 Đã xóa!", alert=True)
+        await e.answer("🗑 Đã xóa clone!", alert=True)
         await callback_handler(e)
 
     elif data == "dep_menu":
@@ -204,21 +207,10 @@ async def callback_handler(e):
                 await conv.send_message("✅ Đã cộng tiền!")
                 await bot.send_message(int(tid), f"🎉 Bạn được Admin cộng `{int(amt):,} VNĐ`!")
 
-    elif data == "adm_bc" and int(uid) == ADMIN_ID:
-        async with bot.conversation(uid) as conv:
-            await conv.send_message("📢 Nhập nội dung thông báo:")
-            msg = await conv.get_response()
-            users = supabase.table("users").select("user_id").execute()
-            for u in users.data:
-                try: await bot.send_message(int(u['user_id']), msg)
-                except: pass
-            await conv.send_message("✅ Đã gửi xong!")
-
-# ================= THÊM CLONE =================
+# ================= THÊM CLONE (MIỄN PHÍ) =================
 @bot.on(events.CallbackQuery(data=b"add_clone"))
 async def add_clone_conv(e):
-    user = db_get_user(e.sender_id)
-    if user['balance'] < PRICE_PER_DAY: return await e.answer("❌ Số dư tối thiểu 10k!", alert=True)
+    # Đã bỏ phần check số dư và trừ tiền ở đây
     async with bot.conversation(e.sender_id, timeout=300) as conv:
         try:
             await conv.send_message("📞 **Nhập SĐT Clone (+84...):**")
@@ -233,12 +225,20 @@ async def add_clone_conv(e):
                 await conv.send_message("🔐 **Nhập 2FA:**")
                 await new_cl.sign_in(password=(await conv.get_response()).text.strip())
             
-            exp = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
-            supabase.table("users").update({"balance": user['balance'] - PRICE_PER_DAY}).eq("user_id", e.sender_id).execute()
-            res = supabase.table("my_clones").insert({"owner_id": e.sender_id, "phone": phone, "session": new_cl.session.save(), "expiry": exp}).execute()
+            # Mặc định khi thêm acc là HẾT HẠN (không có thời gian thuê)
+            exp = datetime.now(timezone.utc).isoformat()
             
-            active_tasks[f"{e.sender_id}_{phone}"] = asyncio.create_task(run_clone_worker(new_cl.session.save(), phone, e.sender_id, res.data[0]['id']))
-            await conv.send_message(f"✅ Đã thêm và kích hoạt thuê bot cho `{phone}` (24h)!")
+            # Lưu vào DB mà không trừ tiền
+            res = supabase.table("my_clones").insert({
+                "owner_id": e.sender_id, 
+                "phone": phone, 
+                "session": new_cl.session.save(), 
+                "expiry": exp
+            }).execute()
+            
+            # KHÔNG tạo task run_clone_worker ở đây vì chưa thuê bot
+            await conv.send_message(f"✅ Đã thêm acc `{phone}` thành công!\n\n👉 Bây giờ hãy vào mục **Danh sách & Thuê Bot** để kích hoạt gói đập hộp.")
+            await new_cl.disconnect() # Ngắt kết nối luôn để chờ gia hạn
         except Exception as err: await conv.send_message(f"❌ Lỗi: {err}")
 
 # ================= WEBHOOK & MAIN =================
@@ -255,6 +255,7 @@ async def webhook():
 
 async def main():
     await bot.start(bot_token=BOT_TOKEN)
+    # Chỉ khởi động lại những acc nào CÒN HẠN thuê bot
     try:
         clones = supabase.table("my_clones").select("*").execute()
         for c in clones.data:
@@ -265,4 +266,4 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-                
+                            
