@@ -17,7 +17,7 @@ BOT_TOKEN = "8361903272:AAFcJMZZ0ykvrFBoH0TYP7h7SlwHbim56tU"
 
 STK_MSB = "96886693002613" 
 BOT_GAME_TARGET = "xocdia88_bot_uytin_bot" 
-PRICE_PER_DAY = 10000 
+PRICE_PER_DAY = 20000 
 ADMIN_ID = 7816353760 
 
 logging.basicConfig(level=logging.INFO)
@@ -93,7 +93,7 @@ def get_main_menu(uid):
         f"━━━━━━━━━━━━━━━━━━"
     )
     btns = [
-        [TButton.inline("⏳ THUÊ/GIA HẠN BOT (10K/NGÀY)", b"rent_bot")],
+        [TButton.inline("⏳ THUÊ/GIA HẠN BOT (20K/NGÀY)", b"rent_bot")],
         [TButton.inline("➕ THÊM ACC (FREE)", b"add_clone"), TButton.inline("📱 D.SÁCH ACC", b"list_clones")],
         [TButton.inline("🏦 NẠP TIỀN", b"dep_menu"), TButton.inline("📜 LỊCH SỬ", b"history")],
         [TButton.url("💬 HỖ TRỢ", "https://t.me/nth_dev")]
@@ -120,7 +120,7 @@ async def callback_handler(e):
     elif data == "rent_bot":
         user = db_get_user(uid)
         if user['balance'] < PRICE_PER_DAY:
-            return await e.answer("❌ Bạn cần tối thiểu 10,000đ để thuê bot!", alert=True)
+            return await e.answer("❌ Bạn cần tối thiểu 20,000đ để thuê bot!", alert=True)
         
         old_exp = datetime.fromisoformat(user['bot_expiry'].replace('Z', '+00:00'))
         new_exp = max(old_exp, datetime.now(timezone.utc)) + timedelta(days=1)
