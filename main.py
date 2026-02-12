@@ -5,7 +5,26 @@ from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
 from supabase import create_client, Client
 from quart import Quart, request, jsonify
+from flask import Flask
+from threading import Thread
 
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run():
+  app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- Giữ nguyên code bot của bạn ở dưới này ---
+# Ví dụ:
+# keep_alive()  # Gọi hàm này ngay trước khi bot chạy
+# client.run('TOKEN')
 # ================= CẤU HÌNH =================
 SUPABASE_URL = "https://qaptttdmntjwsizodhdv.supabase.co" 
 SUPABASE_KEY = "sb_publishable_095TgJvOydJ-T9XzMg7ZYg_gr_a1LcA" 
