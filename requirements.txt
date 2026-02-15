@@ -1,6 +1,3 @@
-telethon
-supabase
-quart
-asyncio
-nest-asyncio
-hypercorn
+aiogram==2.25.1
+fastapi
+uvicorn
