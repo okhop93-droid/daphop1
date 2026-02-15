@@ -1,3 +1,4 @@
 aiogram==2.25.1
+aiohttp>=3.10.1
 fastapi
 uvicorn
