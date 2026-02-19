@@ -1,170 +1,145 @@
-import logging
-import sqlite3
-import threading
-import os
-from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-from fastapi import FastAPI, Request
-import uvicorn
+import telebot
+from telebot import types
 
-# ==================== CẤU HÌNH HỆ THỐNG ====================
-API_TOKEN = '8361903272:AAFcJMZZ0ykvrFBoH0TYP7h7SlwHbim56tU' 
-ADMIN_ID = 7816353760 
-GAME_LINK = "https://xocdia88.ec"
-GIA_CODE = 2000 
+API_TOKEN = '8475867709:AAGPINZGRgMnZBRDpNZWPGgBof0fY8N-0D4'
+ADMIN_ID = 7816353760  # Thay ID của bạn
 
-bot = Bot(token=API_TOKEN, parse_mode="HTML")
-dp = Dispatcher(bot)
-app = FastAPI()
+# Danh sách các nhóm/kênh bắt buộc (Sử dụng Username hoặc ID)
+# Bot phải là Admin của tất cả các nhóm này
+CHANNELS = ['@kiemtienonline48h', '@baogametanthunew', '@xomnguhoc', '@thongbaogamemoi1'] 
 
-# ==================== KHỞI TẠO DATABASE ====================
-def init_db():
-    conn = sqlite3.connect('xocdia88.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS codes (id INTEGER PRIMARY KEY AUTOINCREMENT, code_text TEXT, status TEXT DEFAULT 'available')''')
-    c.execute('''CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, code_text TEXT, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    conn.commit()
-    conn.close()
+MONEY_PER_REF = 5000 
+COST_PER_CODE = 20000
 
-init_db()
+db = {
+    "users": {}, 
+    "codes": [],
+    "game_link": "https://xocdia88.ec"
+}
 
-PORT = int(os.environ.get("PORT", 8000))
+bot = telebot.TeleBot(API_TOKEN)
 
-@app.get("/")
-async def root():
-    return {"status": "Bot is running"}
+# --- HÀM KIỂM TRA TẤT CẢ NHÓM ---
+def check_all_channels(user_id):
+    for channel in CHANNELS:
+        try:
+            status = bot.get_chat_member(channel, user_id).status
+            # Nếu status là 'left', 'kicked' hoặc 'left' thì coi như chưa vào
+            if status in ['left', 'kicked', 'restricted']:
+                return False, channel
+        except Exception as e:
+            # Nếu bot chưa vào nhóm hoặc lỗi ID nhóm
+            return False, channel
+    return True, None
 
-@app.post("/webhook")
-async def msb_webhook(request: Request):
-    data = await request.json()
-    try:
-        data_body = data.get('data', data)
-        description = data_body.get('description', "")
-        amount = data_body.get('amount', 0)
-        if "NAP" in description.upper():
-            user_id = int(''.join(filter(str.isdigit, description)))
-            conn = sqlite3.connect('xocdia88.db')
-            c = conn.cursor()
-            c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-            conn.commit()
-            conn.close()
-            await bot.send_message(user_id, f"<b>✅ NẠP TIỀN THÀNH CÔNG!</b>\n💰 +{amount:,}đ vào tài khoản.")
-    except Exception as e:
-        logging.error(f"Lỗi Webhook: {e}")
-    return {"status": "success"}
-
-# ==================== KEYBOARDS ====================
-def main_menu():
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    # Đảm bảo văn bản ở đây khớp chính xác với phần Handler bên dưới
-    markup.add(KeyboardButton("🛒 MUA CODE (2K)"), KeyboardButton("🎁 XEM KHO HÀNG"))
-    markup.add(KeyboardButton("👤 TÀI KHOẢN"), KeyboardButton("📜 LỊCH SỬ"))
-    markup.add(KeyboardButton("💰 NẠP TIỀN"), KeyboardButton("🔗 LINK GAME"))
+# --- MENU CHÍNH ---
+def main_menu(user_id):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("✅ Xác Minh", "📊 Thống Kê")
+    markup.add("🎁 Rút Code", "🔗 Lấy Link Mời")
+    markup.add("🎮 Link Game")
+    if user_id == ADMIN_ID:
+        markup.add("🛠 Admin Panel")
     return markup
 
-# ==================== BOT HANDLERS ====================
-
-@dp.message_handler(commands=['start'])
-async def cmd_start(message: types.Message):
+@bot.message_handler(commands=['start'])
+def start(message):
     user_id = message.from_user.id
-    conn = sqlite3.connect('xocdia88.db')
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
-    conn.commit()
-    conn.close()
-    await message.reply(f"<b>💎 CHÀO MỪNG ĐẾN VỚI SHOP XOCDIA88</b>\n──────────────────\n🦊 Thử vận may chỉ với: <b>{GIA_CODE:,}đ</b>\n🎁 Nhận ngẫu nhiên code: <b>2k - 88k</b>", reply_markup=main_menu())
+    if user_id not in db["users"]:
+        args = message.text.split()
+        referrer = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+        db["users"][user_id] = {'balance': 0, 'invited_by': referrer, 'refs': 0, 'verified': False}
+    
+    bot.send_message(message.chat.id, "🌟 Chào mừng bạn! Bạn cần tham gia TẤT CẢ các nhóm hệ thống để nhận thưởng.", 
+                     reply_markup=main_menu(user_id))
 
-# Sửa lỗi không nhận diện được nút bằng cách dùng lambda kiểm tra chuỗi có chứa từ khóa
-@dp.message_handler(lambda message: "TÀI KHOẢN" in message.text.upper())
-async def user_info(message: types.Message):
-    conn = sqlite3.connect('xocdia88.db')
-    c = conn.cursor()
-    c.execute("SELECT balance FROM users WHERE user_id = ?", (message.from_user.id,))
-    res = c.fetchone()
-    balance = res[0] if res else 0
-    conn.close()
-    await message.reply(f"<b>👤 THÔNG TIN CỦA BẠN</b>\n\n🆔 ID: <code>{message.from_user.id}</code>\n💰 Số dư: <b>{balance:,}đ</b>")
-
-@dp.message_handler(lambda message: "LỊCH SỬ" in message.text.upper())
-async def view_history(message: types.Message):
-    conn = sqlite3.connect('xocdia88.db')
-    c = conn.cursor()
-    c.execute("SELECT code_text, time FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 5", (message.from_user.id,))
-    rows = c.fetchall()
-    conn.close()
-    if not rows:
-        return await message.reply("<b>📜 LỊCH SỬ</b>\n\nBạn chưa mua mã nào!")
-    text = "<b>📜 5 GIAO DỊCH GẦN NHẤT</b>\n\n"
-    for r in rows:
-        text += f"▫️ Mã: <code>{r[0]}</code>\n⏰ <i>{r[1]}</i>\n\n"
-    await message.reply(text)
-
-@dp.message_handler(lambda message: "LINK GAME" in message.text.upper())
-async def game_link(message: types.Message):
-    btn = InlineKeyboardMarkup().add(InlineKeyboardButton("🕹️ MỞ XOCDIA88", url=GAME_LINK))
-    await message.reply("<b>Link vào nhà game chính thức:</b>", reply_markup=btn)
-
-@dp.message_handler(lambda message: "NẠP TIỀN" in message.text.upper())
-async def nap_tien(message: types.Message):
-    await message.reply(f"<b>🏦 HƯỚNG DẪN NẠP TIỀN MSB</b>\n\nSTK: <code>96886693002613</code>\nCTK: <b>NGUYEN THANH HOP</b>\nNội dung: <code>NAP {message.from_user.id}</code>")
-
-@dp.message_handler(lambda message: "XEM KHO HÀNG" in message.text.upper())
-async def view_stock(message: types.Message):
-    conn = sqlite3.connect('xocdia88.db')
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM codes WHERE status = 'available'")
-    total = c.fetchone()[0]
-    conn.close()
-    await message.reply(f"<b>📦 KHO CODE RANDOM</b>\n\n▫️ Đang có: <b>{total}</b> mã code")
-
-@dp.message_handler(lambda message: "MUA CODE" in message.text.upper())
-async def buy_code(message: types.Message):
+# --- XỬ LÝ XÁC MINH (NHIỀU NHÓM) ---
+@bot.message_handler(func=lambda msg: msg.text == "✅ Xác Minh")
+def verify(message):
     uid = message.from_user.id
-    conn = sqlite3.connect('xocdia88.db')
-    c = conn.cursor()
-    c.execute("SELECT balance FROM users WHERE user_id = ?", (uid,))
-    balance_res = c.fetchone()
-    balance = balance_res[0] if balance_res else 0
-    if balance < GIA_CODE:
-        conn.close()
-        return await message.reply("❌ <b>Bạn không đủ tiền!</b>")
-    
-    c.execute("SELECT id, code_text FROM codes WHERE status = 'available' ORDER BY RANDOM() LIMIT 1")
-    res = c.fetchone()
-    if res:
-        code_id, code_val = res
-        c.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (GIA_CODE, uid))
-        c.execute("UPDATE codes SET status = 'sold' WHERE id = ?", (code_id,))
-        c.execute("INSERT INTO history (user_id, code_text) VALUES (?, ?)", (uid, code_val))
-        conn.commit()
-        conn.close()
-        btn = InlineKeyboardMarkup().add(InlineKeyboardButton("🕹️ VÀO GAME NHẬP NGAY", url=GAME_LINK))
-        await message.reply(f"<b>🎉 MUA THÀNH CÔNG!</b>\n🔑 Mã: <code>{code_val}</code>", reply_markup=btn)
+    user_data = db["users"].get(uid)
+
+    if user_data['verified']:
+        bot.reply_to(message, "⚠️ Tài khoản của bạn đã được xác minh trước đó.")
+        return
+
+    is_joined, missing_channel = check_all_channels(uid)
+
+    if is_joined:
+        user_data['verified'] = True
+        user_data['balance'] += MONEY_PER_REF
+        
+        # Cộng tiền cho người mời chỉ khi người được mời xác minh thành công
+        ref_id = user_data['invited_by']
+        if ref_id and ref_id in db["users"]:
+            db["users"][ref_id]['balance'] += MONEY_PER_REF
+            db["users"][ref_id]['refs'] += 1
+            try:
+                bot.send_message(ref_id, f"🎉 Chúc mừng! Bạn nhận được {MONEY_PER_REF:,}đ vì bạn bè của bạn đã tham gia đủ nhóm và xác minh thành công!")
+            except: pass
+
+        bot.reply_to(message, f"✅ Tuyệt vời! Bạn đã tham gia đủ nhóm và nhận được {MONEY_PER_REF:,}đ thưởng.")
     else:
-        conn.close()
-        await message.reply("😔 <b>Kho hết code!</b>")
+        # Thông báo rõ nhóm nào người dùng chưa tham gia
+        bot.reply_to(message, f"❌ Bạn chưa tham gia đầy đủ các nhóm!\n👉 Hãy tham gia nhóm {missing_channel} rồi ấn lại Xác Minh.")
 
-# --- ADMIN COMMANDS ---
-@dp.message_handler(commands=['add'])
-async def add_bulk(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    raw_codes = message.get_args().replace('\n', ' ').split()
-    if not raw_codes: return await message.reply("Vui lòng nhập danh sách mã!")
-    conn = sqlite3.connect('xocdia88.db')
-    c = conn.cursor()
-    for code in raw_codes:
-        c.execute("INSERT INTO codes (code_text) VALUES (?)", (code,))
-    conn.commit()
-    conn.close()
-    await message.reply(f"✅ Đã nạp {len(raw_codes)} mã vào kho.")
+# --- RÚT CODE (GIẤU SỐ LƯỢNG) ---
+@bot.message_handler(func=lambda msg: msg.text == "🎁 Rút Code")
+def redeem_code(message):
+    uid = message.from_user.id
+    user_data = db["users"].get(uid)
 
-# ==================== CHẠY BOT ====================
-def run_fastapi():
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    if not user_data['verified']:
+        bot.reply_to(message, "⚠️ Bạn cần tham gia các nhóm và nhấn '✅ Xác Minh' trước.")
+        return
 
-if __name__ == '__main__':
-    threading.Thread(target=run_fastapi).start()
-    executor.start_polling(dp, skip_updates=True)
+    if user_data['balance'] < COST_PER_CODE:
+        bot.reply_to(message, f"❌ Số dư không đủ! Cần {COST_PER_CODE:,}đ. Hãy đi mời bạn bè bằng link của bạn.")
+        return
     
+    if not db["codes"]:
+        bot.reply_to(message, "📭 Hiện tại kho code đã phát hết, vui lòng đợi Admin nạp thêm.")
+        return
+
+    code = db["codes"].pop(0)
+    user_data['balance'] -= COST_PER_CODE
+    bot.send_message(message.chat.id, f"✅ Đổi thành công!\n🎁 Code: `{code}`\n💰 Số dư còn lại: {user_data['balance']:,}đ", parse_mode="Markdown")
+
+# --- PHẦN CÒN LẠI GIỮ NGUYÊN ---
+@bot.message_handler(func=lambda msg: msg.text == "📊 Thống Kê")
+def statistics(message):
+    uid = message.from_user.id
+    data = db["users"].get(uid)
+    text = (f"=== 👤 TÀI KHOẢN ===\n🆔 ID: `{uid}`\n💰 Số dư: {data['balance']:,}đ\n👫 Đã mời: {data['refs']} người\n🛠 Trạng thái: {'✅ Đã xác minh' if data['verified'] else '❌ Chưa xác minh'}")
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+
+@bot.message_handler(func=lambda msg: msg.text == "🎮 Link Game")
+def send_game_link(message):
+    bot.send_message(message.chat.id, f"🚀 **Link tải Game:**\n{db['game_link']}", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda msg: msg.text == "🔗 Lấy Link Mời")
+def invite_link(message):
+    bot.reply_to(message, f"🔗 Link giới thiệu của bạn (nhận {MONEY_PER_REF:,}đ/lượt):\n`t.me/{bot.get_me().username}?start={message.from_user.id}`", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda msg: msg.text == "🛠 Admin Panel" and msg.from_user.id == ADMIN_ID)
+def admin_panel(message):
+    text = (f"=== 🛠 QUẢN TRỊ ===\n👥 Thành viên: {len(db['users'])}\n📦 Code kho: {len(db['codes'])}\n📢 Số nhóm bắt buộc: {len(CHANNELS)}\n\n🔹 Thêm code: `/addcode c1 c2` \n🔹 Đổi link: `/setlink http...` ")
+    bot.send_message(message.chat.id, text)
+
+@bot.message_handler(commands=['addcode'])
+def add_code(message):
+    if message.from_user.id == ADMIN_ID:
+        new_codes = message.text.split()[1:]
+        if new_codes:
+            db["codes"].extend(new_codes)
+            bot.reply_to(message, f"📥 Đã nạp thêm {len(new_codes)} mã code.")
+
+@bot.message_handler(commands=['setlink'])
+def set_link(message):
+    if message.from_user.id == ADMIN_ID:
+        new_link = message.text.replace("/setlink ", "").strip()
+        db["game_link"] = new_link
+        bot.reply_to(message, "✅ Đã cập nhật Link Game.")
+
+bot.infinity_polling()
+        
